@@ -222,17 +222,7 @@ class _InvoiceForm extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
           child: const Text("Cancel"),
         ),
-        ElevatedButton(
-          onPressed: () {
-            if (formKey.currentState!.validate()) {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text("Invoice Created")));
-            }
-          },
-          child: const Text("Save"),
-        ),
+        ElevatedButton(onPressed: () async {}, child: const Text("Save")),
       ],
     );
   }

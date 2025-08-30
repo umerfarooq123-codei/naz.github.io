@@ -1,12 +1,17 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:ledger_master/models/ledger_entry.dart';
+import 'package:ledger_master/providers/ledger_providers.dart';
 
-class ReportsScreen extends StatelessWidget {
+class ReportsScreen extends ConsumerWidget {
   const ReportsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ledgerState = ref.watch(journalListNotifierProvider);
+
     return DefaultTabController(
       length: 5,
       child: Scaffold(
@@ -23,25 +28,37 @@ class ReportsScreen extends StatelessWidget {
             ],
           ),
         ),
-        body: const TabBarView(
-          children: [
-            _ProfitLossReport(),
-            _BalanceSheetReport(),
-            _CashFlowReport(),
-            _AgingReport(),
-            _TaxReports(),
-          ],
-        ),
+        body: ledgerState.loading
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
+                children: [
+                  _ProfitLossReport(entries: ledgerState.entries),
+                  _BalanceSheetReport(entries: ledgerState.entries),
+                  _CashFlowReport(entries: ledgerState.entries),
+                  _AgingReport(entries: ledgerState.entries),
+                  _TaxReports(entries: ledgerState.entries),
+                ],
+              ),
       ),
     );
   }
 }
 
 class _ProfitLossReport extends StatelessWidget {
-  const _ProfitLossReport();
+  final List<LedgerEntry> entries;
+  const _ProfitLossReport({required this.entries});
 
   @override
   Widget build(BuildContext context) {
+    double totalIncome = entries.fold(
+      0.0,
+      (sum, e) => sum + e.lines.fold(0, (s, l) => s + l.credit),
+    );
+    double totalExpense = entries.fold(
+      0.0,
+      (sum, e) => sum + e.lines.fold(0, (s, l) => s + l.debit),
+    );
+
     return Padding(
       padding: EdgeInsets.all(16.w),
       child: Column(
@@ -66,11 +83,11 @@ class _ProfitLossReport extends StatelessWidget {
                       getTitlesWidget: (value, meta) {
                         switch (value.toInt()) {
                           case 0:
-                            return const Text("Jan");
+                            return const Text("Income");
                           case 1:
-                            return const Text("Feb");
+                            return const Text("Expense");
                           case 2:
-                            return const Text("Mar");
+                            return const Text("Net");
                           default:
                             return const Text("");
                         }
@@ -81,15 +98,24 @@ class _ProfitLossReport extends StatelessWidget {
                 barGroups: [
                   BarChartGroupData(
                     x: 0,
-                    barRods: [BarChartRodData(toY: 50000, color: Colors.green)],
+                    barRods: [
+                      BarChartRodData(toY: totalIncome, color: Colors.green),
+                    ],
                   ),
                   BarChartGroupData(
                     x: 1,
-                    barRods: [BarChartRodData(toY: 30000, color: Colors.red)],
+                    barRods: [
+                      BarChartRodData(toY: totalExpense, color: Colors.red),
+                    ],
                   ),
                   BarChartGroupData(
                     x: 2,
-                    barRods: [BarChartRodData(toY: 70000, color: Colors.green)],
+                    barRods: [
+                      BarChartRodData(
+                        toY: totalIncome - totalExpense,
+                        color: Colors.blue,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -102,15 +128,23 @@ class _ProfitLossReport extends StatelessWidget {
 }
 
 class _BalanceSheetReport extends StatelessWidget {
-  const _BalanceSheetReport();
+  final List<LedgerEntry> entries;
+  const _BalanceSheetReport({required this.entries});
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      {"label": "Assets", "value": 250000},
-      {"label": "Liabilities", "value": 100000},
-      {"label": "Equity", "value": 150000},
-    ];
+    double assets = entries.fold(
+      0.0,
+      (sum, e) =>
+          sum +
+          e.lines.where((l) => l.debit > 0).fold(0.0, (s, l) => s + l.debit),
+    );
+    double liabilities = entries.fold(
+      0.0,
+      (sum, e) =>
+          sum +
+          e.lines.where((l) => l.credit > 0).fold(0.0, (s, l) => s + l.credit),
+    );
 
     return Padding(
       padding: EdgeInsets.all(16.w),
@@ -123,16 +157,21 @@ class _BalanceSheetReport extends StatelessWidget {
           ),
           SizedBox(height: 16.h),
           Expanded(
-            child: ListView.separated(
-              itemCount: items.length,
-              separatorBuilder: (_, __) => Divider(),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return ListTile(
-                  title: Text(item["label"].toString()),
-                  trailing: Text("₹${item["value"]}"),
-                );
-              },
+            child: ListView(
+              children: [
+                ListTile(
+                  title: const Text("Assets"),
+                  trailing: Text("₹$assets"),
+                ),
+                ListTile(
+                  title: const Text("Liabilities"),
+                  trailing: Text("₹$liabilities"),
+                ),
+                ListTile(
+                  title: const Text("Equity"),
+                  trailing: Text("₹${assets - liabilities}"),
+                ),
+              ],
             ),
           ),
         ],
@@ -142,10 +181,25 @@ class _BalanceSheetReport extends StatelessWidget {
 }
 
 class _CashFlowReport extends StatelessWidget {
-  const _CashFlowReport();
+  final List<LedgerEntry> entries;
+  const _CashFlowReport({required this.entries});
 
   @override
   Widget build(BuildContext context) {
+    // Simple cash inflow/outflow using ledger lines
+    double inflow = entries.fold(
+      0.0,
+      (sum, e) =>
+          sum +
+          e.lines.where((l) => l.credit > 0).fold(0.0, (s, l) => s + l.credit),
+    );
+    double outflow = entries.fold(
+      0.0,
+      (sum, e) =>
+          sum +
+          e.lines.where((l) => l.debit > 0).fold(0.0, (s, l) => s + l.debit),
+    );
+
     return Padding(
       padding: EdgeInsets.all(16.w),
       child: Column(
@@ -162,10 +216,9 @@ class _CashFlowReport extends StatelessWidget {
                 lineBarsData: [
                   LineChartBarData(
                     spots: [
-                      const FlSpot(0, 5000),
-                      const FlSpot(1, 12000),
-                      const FlSpot(2, 8000),
-                      const FlSpot(3, 15000),
+                      FlSpot(0, inflow),
+                      FlSpot(1, outflow),
+                      FlSpot(2, inflow - outflow),
                     ],
                     isCurved: true,
                     barWidth: 3,
@@ -183,15 +236,20 @@ class _CashFlowReport extends StatelessWidget {
 }
 
 class _AgingReport extends StatelessWidget {
-  const _AgingReport();
+  final List<LedgerEntry> entries;
+  const _AgingReport({required this.entries});
 
   @override
   Widget build(BuildContext context) {
-    final debtors = [
-      {"name": "Customer A", "amount": 15000, "days": 30},
-      {"name": "Customer B", "amount": 22000, "days": 45},
-      {"name": "Customer C", "amount": 8000, "days": 60},
-    ];
+    final debtors = entries
+        .map(
+          (e) => {
+            "name": e.description,
+            "amount": e.totalDebit(),
+            "days": DateTime.now().difference(e.date).inDays,
+          },
+        )
+        .toList();
 
     return Padding(
       padding: EdgeInsets.all(16.w),
@@ -210,15 +268,17 @@ class _AgingReport extends StatelessWidget {
                 DataColumn(label: Text("Amount")),
                 DataColumn(label: Text("Days Outstanding")),
               ],
-              rows: debtors.map((d) {
-                return DataRow(
-                  cells: [
-                    DataCell(Text(d["name"].toString())),
-                    DataCell(Text("₹${d["amount"]}")),
-                    DataCell(Text("${d["days"]} days")),
-                  ],
-                );
-              }).toList(),
+              rows: debtors
+                  .map(
+                    (d) => DataRow(
+                      cells: [
+                        DataCell(Text(d["name"].toString())),
+                        DataCell(Text("₹${d["amount"]}")),
+                        DataCell(Text("${d["days"]} days")),
+                      ],
+                    ),
+                  )
+                  .toList(),
             ),
           ),
         ],
@@ -228,15 +288,28 @@ class _AgingReport extends StatelessWidget {
 }
 
 class _TaxReports extends StatelessWidget {
-  const _TaxReports();
+  final List<LedgerEntry> entries;
+  const _TaxReports({required this.entries});
 
   @override
   Widget build(BuildContext context) {
-    final taxes = [
-      {"label": "GST Collected", "value": 18000},
-      {"label": "GST Paid", "value": 12000},
-      {"label": "VAT Liability", "value": 5000},
-    ];
+    // Simple GST example: 18% of credit entries
+    double gstCollected = entries.fold(
+      0.0,
+      (sum, e) =>
+          sum +
+          e.lines
+              .where((l) => l.credit > 0)
+              .fold(0.0, (s, l) => s + l.credit * 0.18),
+    );
+    double gstPaid = entries.fold(
+      0.0,
+      (sum, e) =>
+          sum +
+          e.lines
+              .where((l) => l.debit > 0)
+              .fold(0.0, (s, l) => s + l.debit * 0.18),
+    );
 
     return Padding(
       padding: EdgeInsets.all(16.w),
@@ -246,16 +319,21 @@ class _TaxReports extends StatelessWidget {
           Text("Tax Reports", style: Theme.of(context).textTheme.headlineSmall),
           SizedBox(height: 16.h),
           Expanded(
-            child: ListView.separated(
-              itemCount: taxes.length,
-              separatorBuilder: (_, __) => Divider(),
-              itemBuilder: (context, index) {
-                final item = taxes[index];
-                return ListTile(
-                  title: Text(item["label"].toString()),
-                  trailing: Text("₹${item["value"]}"),
-                );
-              },
+            child: ListView(
+              children: [
+                ListTile(
+                  title: const Text("GST Collected"),
+                  trailing: Text("₹$gstCollected"),
+                ),
+                ListTile(
+                  title: const Text("GST Paid"),
+                  trailing: Text("₹$gstPaid"),
+                ),
+                ListTile(
+                  title: const Text("VAT Liability"),
+                  trailing: Text("₹${gstCollected - gstPaid}"),
+                ),
+              ],
             ),
           ),
         ],
