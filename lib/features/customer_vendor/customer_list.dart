@@ -98,9 +98,13 @@ class CustomerList extends StatelessWidget {
       () => Stack(
         children: [
           BaseLayout(
+            showBackButton: false,
             appBarTitle: 'Customers & Vendors',
             child: Column(
+              mainAxisSize: MainAxisSize.min, // Shrink-wrap the outer Column
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Search bar (fixed at the top)
                 Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Autocomplete<String>(
@@ -175,185 +179,227 @@ class CustomerList extends StatelessWidget {
                         },
                   ),
                 ),
+                // Scrollable content
                 Expanded(
-                  child: controller.filteredCustomers.isEmpty
-                      ? Center(
-                          child: Text(
-                            controller.searchQuery.value.isEmpty
-                                ? 'No Customers found. Add some Customers to get started.'
-                                : 'No Customers match your search.',
-                            style: Theme.of(context).textTheme.bodyMedium!
-                                .copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface
-                                      .withValues(alpha: 0.8),
-                                ),
-                          ),
-                        )
-                      : GridView.builder(
-                          padding: const EdgeInsets.all(16),
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: gridAxisCount,
-                                crossAxisSpacing: 10,
-                                mainAxisSpacing: 10,
-                                childAspectRatio: 2.5 / 1.5,
-                              ),
-                          itemCount: controller.filteredCustomers.length,
-                          itemBuilder: (context, index) {
-                            final customer =
-                                controller.filteredCustomers[index];
-                            final summary = controller.getCustomerDebitCredit(
-                              customer.name,
-                            );
-
-                            return Card(
-                              color: Colors.white30,
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                  12,
-                                ), // 👈 rounded corners here
-                                side: const BorderSide(
-                                  color: Colors.grey,
-                                ), // optional border
-                              ),
-                              child: InkWell(
-                                onTap: () =>
-                                    showCustomerDetailsDialog(customer),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize:
+                          MainAxisSize.min, // Shrink-wrap the inner Column
+                      children: [
+                        controller.filteredCustomers.isEmpty
+                            ? Center(
                                 child: Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: Column(
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Icon(
-                                            Icons.person,
-                                            color: Colors.white,
-                                            size: 30,
-                                          ), // darker for contrast
-                                          Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                customer.name,
-                                                style: Theme.of(
-                                                  context,
-                                                ).textTheme.titleMedium,
-                                                overflow: TextOverflow.ellipsis,
-                                                maxLines: 1,
-                                              ),
-                                              Text(
-                                                'No: ${customer.customerNo}',
-                                                style: Theme.of(
-                                                  context,
-                                                ).textTheme.bodySmall,
-                                                overflow: TextOverflow.ellipsis,
-                                                maxLines: 1,
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                      Spacer(),
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Expanded(
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 6.0,
-                                                    horizontal: 6.0,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Credit: ${summary.credit}',
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .bodySmall!
-                                                        .copyWith(
-                                                          color: Colors.red,
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                        ),
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    maxLines: 1,
-                                                  ),
-                                                  Text(
-                                                    'Debit: ${summary.debit}',
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .bodySmall!
-                                                        .copyWith(
-                                                          color: Colors.green,
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                        ),
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    maxLines: 1,
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                          Row(
-                                            children: [
-                                              IconButton(
-                                                icon: const Icon(
-                                                  Icons.edit,
-                                                  size: 16,
-                                                ),
-                                                onPressed: () async {
-                                                  await controller.loadCustomer(
-                                                    customer: customer,
-                                                  );
-                                                  if (context.mounted) {
-                                                    NavigationHelper.push(
-                                                      context,
-                                                      CustomerAddEdit(
-                                                        customer: customer,
-                                                      ),
-                                                    );
-                                                  }
-                                                  await controller
-                                                      .fetchCustomers();
-                                                },
-                                              ),
-                                              IconButton(
-                                                icon: const Icon(
-                                                  Icons.delete,
-                                                  size: 16,
-                                                ),
-                                                onPressed: () =>
-                                                    controller.deleteCustomer(
-                                                      customer.id!,
-                                                    ),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Text(
+                                    controller.searchQuery.value.isEmpty
+                                        ? 'No Customers found. Add some Customers to get started.'
+                                        : 'No Customers match your search.',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium!
+                                        .copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withValues(alpha: 0.8),
+                                        ),
                                   ),
                                 ),
+                              )
+                            : GridView.builder(
+                                padding: const EdgeInsets.all(16),
+                                shrinkWrap:
+                                    true, // Allow GridView to size itself
+                                physics:
+                                    const NeverScrollableScrollPhysics(), // Disable GridView scrolling
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: gridAxisCount,
+                                      crossAxisSpacing: 10,
+                                      mainAxisSpacing: 10,
+                                      childAspectRatio: 2.5 / 1.5,
+                                    ),
+                                itemCount: controller.filteredCustomers.length,
+                                itemBuilder: (context, index) {
+                                  final customer =
+                                      controller.filteredCustomers[index];
+                                  final summary = controller
+                                      .getCustomerDebitCredit(customer.name);
+
+                                  return Card(
+                                    color: Colors.white30,
+                                    elevation: 4,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: const BorderSide(
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    child: InkWell(
+                                      onTap: () =>
+                                          showCustomerDetailsDialog(customer),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(8.0),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize
+                                              .min, // Shrink-wrap inner Column
+                                          children: [
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Icon(
+                                                  Icons.person,
+                                                  color: Colors.white,
+                                                  size: 30,
+                                                ),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    mainAxisSize: MainAxisSize
+                                                        .min, // Shrink-wrap
+                                                    children: [
+                                                      Text(
+                                                        customer.name
+                                                            .toUpperCase(),
+                                                        style: Theme.of(
+                                                          context,
+                                                        ).textTheme.titleMedium,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        maxLines: 1,
+                                                      ),
+                                                      Text(
+                                                        'No: ${customer.customerNo}',
+                                                        style: Theme.of(
+                                                          context,
+                                                        ).textTheme.bodySmall,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        maxLines: 1,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const Spacer(),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: Container(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 6.0,
+                                                          horizontal: 6.0,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.white,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            4,
+                                                          ),
+                                                    ),
+                                                    child: Column(
+                                                      mainAxisSize: MainAxisSize
+                                                          .min, // Shrink-wrap
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      children: [
+                                                        Text(
+                                                          'Credit: ${summary.credit}',
+                                                          style: Theme.of(context)
+                                                              .textTheme
+                                                              .bodySmall!
+                                                              .copyWith(
+                                                                color:
+                                                                    Colors.red,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                              ),
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          maxLines: 1,
+                                                        ),
+                                                        Text(
+                                                          'Debit: ${summary.debit}',
+                                                          style: Theme.of(context)
+                                                              .textTheme
+                                                              .bodySmall!
+                                                              .copyWith(
+                                                                color: Colors
+                                                                    .green,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                              ),
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          maxLines: 1,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                                Row(
+                                                  children: [
+                                                    IconButton(
+                                                      icon: const Icon(
+                                                        Icons.edit,
+                                                        size: 16,
+                                                      ),
+                                                      onPressed: () async {
+                                                        await controller
+                                                            .loadCustomer(
+                                                              customer:
+                                                                  customer,
+                                                            );
+                                                        if (context.mounted) {
+                                                          NavigationHelper.push(
+                                                            context,
+                                                            CustomerAddEdit(
+                                                              customer:
+                                                                  customer,
+                                                            ),
+                                                          );
+                                                        }
+                                                        await controller
+                                                            .fetchCustomers();
+                                                      },
+                                                    ),
+                                                    IconButton(
+                                                      icon: const Icon(
+                                                        Icons.delete,
+                                                        size: 16,
+                                                      ),
+                                                      onPressed: () =>
+                                                          controller
+                                                              .deleteCustomer(
+                                                                customer.id!,
+                                                              ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
-                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -363,8 +409,7 @@ class CustomerList extends StatelessWidget {
             right: 8,
             child: FloatingActionButton(
               onPressed: () async {
-                await controller
-                    .loadCustomer(); // <-- ensure customerNo is generated
+                await controller.loadCustomer();
                 if (context.mounted) {
                   NavigationHelper.push(context, const CustomerAddEdit());
                 }
@@ -391,9 +436,8 @@ class CustomerController extends GetxController {
   final customerNoController = TextEditingController();
   final mobileNoController = TextEditingController();
   final ntnNoController = TextEditingController();
-  final totalDebtController = TextEditingController();
-  final totalCredController = TextEditingController();
   final searchController = TextEditingController();
+  RxString type = "Customer".obs;
 
   final customerLedgerEntries = <String, List<LedgerEntry>>{}.obs;
   final isLoadingLedgers = false.obs;
@@ -549,7 +593,7 @@ class CustomerController extends GetxController {
   Future<void> loadCustomer({Customer? customer}) async {
     if (customer == null) {
       clearForm();
-      customerNoController.text = Customer.generateCustomerNo();
+      customerNoController.text = await repo.getLastCustNVendNo(type.value);
     } else {
       nameController.text = customer.name;
       addressController.text = customer.address;
@@ -568,6 +612,7 @@ class CustomerController extends GetxController {
         customerNo: customerNoController.text,
         mobileNo: mobileNoController.text,
         ntnNo: ntnNoController.text,
+        type: type.value,
       );
 
       if (customer == null) {
@@ -588,8 +633,6 @@ class CustomerController extends GetxController {
     addressController.clear();
     mobileNoController.clear();
     ntnNoController.clear();
-    totalDebtController.clear();
-    totalCredController.clear();
   }
 
   @override
@@ -599,8 +642,6 @@ class CustomerController extends GetxController {
     customerNoController.dispose();
     mobileNoController.dispose();
     ntnNoController.dispose();
-    totalDebtController.dispose();
-    totalCredController.dispose();
     searchController.dispose();
     super.onClose();
   }

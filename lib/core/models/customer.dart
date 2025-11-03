@@ -4,6 +4,7 @@ class Customer {
   final String address;
   final String customerNo;
   final String mobileNo;
+  final String type;
   final String? ntnNo;
 
   Customer({
@@ -12,6 +13,7 @@ class Customer {
     required this.address,
     required this.customerNo,
     required this.mobileNo,
+    required this.type,
     this.ntnNo,
   });
 
@@ -23,6 +25,7 @@ class Customer {
       'customerNo': customerNo,
       'mobileNo': mobileNo,
       'ntnNo': ntnNo,
+      'type': type,
     };
   }
 
@@ -34,9 +37,7 @@ class Customer {
       customerNo: map['customerNo'],
       mobileNo: map['mobileNo'],
       ntnNo: map['ntnNo'],
+      type: map['type'],
     );
-  }
-  static String generateCustomerNo() {
-    return 'CUST${DateTime.now().millisecondsSinceEpoch}';
   }
 }

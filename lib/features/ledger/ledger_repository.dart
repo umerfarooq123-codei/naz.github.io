@@ -30,8 +30,30 @@ class LedgerRepository {
     return await db.delete('ledger', where: 'id = ?', whereArgs: [id]);
   }
 
-  String getLedgerNo() {
-    return 'LN_${DateTime.now().millisecondsSinceEpoch}';
+  Future<String> getLedgerNo() async {
+    final db = await _dbHelper.database;
+
+    // get the largest ledgerNo from the table
+    // assuming ledgerNo is stored like 'LN_0001', 'LN_0002', etc.
+    final result = await db.rawQuery('''
+    SELECT ledgerNo
+    FROM ledger
+    WHERE ledgerNo LIKE 'LN_%'
+    ORDER BY CAST(SUBSTR(ledgerNo, 4) AS INTEGER) DESC
+    LIMIT 1
+  ''');
+
+    if (result.isNotEmpty) {
+      final lastLedgerNo = result.first['ledgerNo'] as String;
+      final lastNumber = int.tryParse(lastLedgerNo.replaceAll('LN_', '')) ?? 0;
+      final nextNumber = lastNumber + 1;
+
+      // format with leading zeros if you want (e.g. LN_0001)
+      return 'LN_${nextNumber.toString().padLeft(4, '0')}';
+    } else {
+      // no ledgers yet
+      return 'LN_0001';
+    }
   }
 
   String _sanitizeIdentifier(String input) =>
@@ -46,6 +68,14 @@ class LedgerRepository {
     await _dbHelper.createLedgerEntryTable(ledgerNo);
   }
 
+  Future<void> updateLedgerDebtOrCred(
+    String flag,
+    String ledgerNo,
+    double value,
+  ) async {
+    await _dbHelper.updateLedgerDebtOrCred(flag, ledgerNo, value);
+  }
+
   Future<int> insertLedgerEntry(LedgerEntry entry, String ledgerNo) async {
     final db = await _dbHelper.database;
     final tableName = _tableNameFromLedgerNo(ledgerNo);
@@ -58,10 +88,10 @@ class LedgerRepository {
 
   Future<List<LedgerEntry>> getLedgerEntries(String ledgerNo) async {
     final db = await _dbHelper.database;
-    final tableName = 'ledger_entries_$ledgerNo';
+    final tableName = _tableNameFromLedgerNo(ledgerNo);
 
     try {
-      final result = await db.query(tableName, orderBy: 'date ASC, id ASC');
+      final result = await db.query(tableName, orderBy: 'date ASC');
       return result.map((e) => LedgerEntry.fromMap(e)).toList();
     } catch (e) {
       return [];
@@ -119,6 +149,23 @@ class LedgerRepository {
       return allEntries;
     } catch (e) {
       return [];
+    }
+  }
+
+  Future<String> getLastVoucherNo(String ledgerNo) async {
+    final db = await _dbHelper.database;
+    final tableName = _tableNameFromLedgerNo(ledgerNo);
+
+    try {
+      final result = await db.query(
+        tableName,
+        columns: ['voucherNo'],
+        orderBy: 'voucherNo DESC',
+        limit: 1,
+      );
+      return result.isNotEmpty ? result.first['voucherNo'] as String : 'VN00';
+    } catch (e) {
+      return 'VN00'; // fallback
     }
   }
 }

@@ -54,6 +54,8 @@ class LedgerEntry {
   final String? category;
   final List<String>? tags;
   final String? createdBy;
+  String? balanceCans;
+  String? receivedCans;
   final DateTime createdAt;
   final DateTime updatedAt;
   final int? itemId;
@@ -82,6 +84,8 @@ class LedgerEntry {
     this.createdBy,
     required this.createdAt,
     required this.updatedAt,
+    required this.balanceCans,
+    required this.receivedCans,
     this.itemId,
     this.itemName,
     this.itemPricePerUnit,
@@ -113,6 +117,8 @@ class LedgerEntry {
       'tags': tags != null ? jsonEncode(tags) : null,
       'createdBy': createdBy,
       'createdAt': createdAt.toIso8601String(),
+      'balanceCans': balanceCans,
+      'receivedCans': receivedCans,
       'updatedAt': updatedAt.toIso8601String(),
       'itemId': itemId,
       'itemName': itemName,
@@ -164,6 +170,8 @@ class LedgerEntry {
           : null,
       createdBy: map['createdBy'],
       createdAt: parseDate(map['createdAt']),
+      balanceCans: map['balanceCans'],
+      receivedCans: map['receivedCans'],
       updatedAt: parseDate(map['updatedAt']),
       itemId: map['itemId'],
       itemName: map['itemName'],

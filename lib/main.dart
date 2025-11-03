@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
+import 'package:ledger_master/core/models/item.dart';
 import 'package:ledger_master/core/theme/app_theme.dart';
 import 'package:ledger_master/features/bank_reconciliation/bank_transaction_list.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
@@ -22,45 +24,69 @@ import 'package:window_manager/window_manager.dart';
 import 'features/automation/automation_screen.dart';
 import 'features/payroll/employee_list.dart';
 
+class ThemeController extends GetxController {
+  RxBool isDarkMode = true.obs;
+
+  @override
+  void onInit() {
+    super.onInit();
+    loadTheme();
+  }
+
+  void loadTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    isDarkMode.value = prefs.getBool('isDarkMode') ?? true;
+    Get.changeThemeMode(isDarkMode.value ? ThemeMode.dark : ThemeMode.light);
+  }
+
+  void toggleTheme() {
+    isDarkMode.value = !isDarkMode.value;
+    Get.changeThemeMode(isDarkMode.value ? ThemeMode.dark : ThemeMode.light);
+    saveTheme();
+  }
+
+  void saveTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isDarkMode', isDarkMode.value);
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await windowManager.ensureInitialized();
-
-  WindowOptions windowOptions = const WindowOptions(
-    size: Size(1280, 720),
-    center: true,
-  );
-
-  windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.maximize();
-    await windowManager.show();
-    await windowManager.focus();
-  });
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    await windowManager.ensureInitialized();
+
+    WindowOptions windowOptions = const WindowOptions(
+      size: Size(1280, 720),
+      center: true,
+    );
+
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.maximize();
+      await windowManager.show();
+      await windowManager.focus();
+    });
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-  final prefs = await SharedPreferences.getInstance();
-  final isDarkMode = prefs.getBool('isDarkMode') ?? true;
+  Get.put(ThemeController());
   Get.put(LedgerController(LedgerRepository()));
   Get.put(CustomerController(CustomerRepository()));
+  Get.put(ItemController(InventoryRepository(), null));
   Get.put(LedgerTableController());
-  Get.put(ItemController(InventoryRepository()));
-  runApp(MyApp(isDarkMode: isDarkMode));
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  final bool isDarkMode;
-  const MyApp({super.key, required this.isDarkMode});
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return GetMaterialApp(
       title: 'NAZ ENTERPRISES',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
       home: const DashboardScreen(),
     );
   }
@@ -76,17 +102,14 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
   // final KPIRepository _kpiRepo = KPIRepository();
-  double totalSales = 0;
-  double receivables = 0;
-  double expenses = 0;
-  double inventoryValue = 0;
+
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+  final NumberFormat formatter = NumberFormat('#,##0.##');
 
   @override
   void initState() {
     super.initState();
-    _loadKPIs();
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
@@ -104,24 +127,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     super.dispose();
   }
 
-  void _loadKPIs() async {
-    // Mock data for demonstration
-    final sales = 7500000.0; // Mock total sales in PKR
-    final rec = 2300000.0; // Mock receivables in PKR
-    final exp = 4500000.0; // Mock expenses in PKR
-    final inv = 12000000.0; // Mock inventory value in PKR
+  final LedgerController ledgerController = Get.find<LedgerController>();
 
-    setState(() {
-      totalSales = sales;
-      receivables = rec;
-      expenses = exp;
-      inventoryValue = inv;
-    });
-  }
-
-  Widget _buildSummaryCard({
+  Widget buildSummaryCard({
     required String title,
-    required double value,
+    required dynamic value,
     required Color color,
     required IconData icon,
   }) {
@@ -173,12 +183,25 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ],
               ),
               const SizedBox(height: 12),
-              Text(
-                '₨${(value / 100000).toStringAsFixed(2)}L', // Display in lakhs
-                style: Theme.of(
-                  context,
-                ).textTheme.displayLarge!.copyWith(color: color),
-              ),
+              if (value is List<Item>)
+                ...List.generate(value.length, (index) {
+                  final formattedStock = formatter.format(
+                    value[index].availableStock,
+                  );
+                  return Text(
+                    "${value[index].name}: $formattedStock",
+                    style: Theme.of(
+                      context,
+                    ).textTheme.displayLarge!.copyWith(color: color),
+                  );
+                })
+              else
+                Text(
+                  formatter.format(value is RxDouble ? value.value : value),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.displayLarge!.copyWith(color: color),
+                ),
             ],
           ),
         ),
@@ -266,7 +289,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         showTitles: true,
                         reservedSize: 40,
                         getTitlesWidget: (value, meta) => Text(
-                          '₨${(value / 1000000).toInt()}M',
+                          '${(value / 1000000).toInt()}M',
                           style: Theme.of(context).textTheme.labelSmall,
                         ),
                       ),
@@ -342,20 +365,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                         color: const Color(0xFFFF6B6B), // Coral red
                         title: 'Rent (40%)',
                         radius: 60,
-                        titleStyle: Theme.of(context).textTheme.labelSmall!
-                            .copyWith(
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
+                        titleStyle: Theme.of(
+                          context,
+                        ).textTheme.labelSmall!.copyWith(color: Colors.white),
                       ),
                       PieChartSectionData(
                         value: 30,
                         color: const Color(0xFF4ADE80), // Green
                         title: 'Salaries (30%)',
                         radius: 60,
-                        titleStyle: Theme.of(context).textTheme.labelSmall!
-                            .copyWith(
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
+                        titleStyle: Theme.of(
+                          context,
+                        ).textTheme.labelSmall!.copyWith(color: Colors.white),
                       ),
                       PieChartSectionData(
                         value: 20,
@@ -364,20 +385,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ).colorScheme.primary, // Primary color
                         title: 'Utilities (20%)',
                         radius: 60,
-                        titleStyle: Theme.of(context).textTheme.labelSmall!
-                            .copyWith(
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
+                        titleStyle: Theme.of(
+                          context,
+                        ).textTheme.labelSmall!.copyWith(color: Colors.white),
                       ),
                       PieChartSectionData(
                         value: 10,
                         color: const Color(0xFFFFD60A), // Yellow
                         title: 'Others (10%)',
                         radius: 60,
-                        titleStyle: Theme.of(context).textTheme.labelSmall!
-                            .copyWith(
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
+                        titleStyle: Theme.of(
+                          context,
+                        ).textTheme.labelSmall!.copyWith(color: Colors.black),
                       ),
                     ],
                     sectionsSpace: 2,
@@ -395,7 +414,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
+    ledgerController.getStats();
     return BaseLayout(
+      showBackButton: false,
       appBarTitle: 'Business Dashboard',
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -423,29 +444,35 @@ class _DashboardScreenState extends State<DashboardScreen>
               mainAxisSpacing: 16,
               crossAxisSpacing: 16,
               children: [
-                _buildSummaryCard(
-                  title: 'Total Sales',
-                  value: totalSales,
-                  color: const Color(0xFF4ADE80), // Green
-                  icon: Icons.receipt_long,
+                Obx(
+                  () => buildSummaryCard(
+                    title: 'Total Sales',
+                    value: ledgerController.totalSales,
+                    color: const Color(0xFF4ADE80), // Green
+                    icon: Icons.receipt_long,
+                  ),
                 ),
-                _buildSummaryCard(
-                  title: 'Receivables',
-                  value: receivables,
-                  color: Theme.of(context).colorScheme.primary, // Primary
-                  icon: Icons.account_balance,
+                Obx(
+                  () => buildSummaryCard(
+                    title: 'Receivables',
+                    value: ledgerController.totalReceivables,
+                    color: Theme.of(context).colorScheme.primary, // Primary
+                    icon: Icons.account_balance,
+                  ),
                 ),
-                _buildSummaryCard(
+                buildSummaryCard(
                   title: 'Expenses',
-                  value: expenses,
+                  value: 0,
                   color: const Color(0xFFFF6B6B), // Coral red
                   icon: Icons.shopping_cart,
                 ),
-                _buildSummaryCard(
-                  title: 'Inventory Value',
-                  value: inventoryValue,
-                  color: const Color(0xFFFFD60A), // Yellow
-                  icon: Icons.inventory,
+                Obx(
+                  () => buildSummaryCard(
+                    title: 'Inventory Value',
+                    value: ledgerController.lowStockItems,
+                    color: const Color(0xFFFFD60A), // Yellow
+                    icon: Icons.inventory,
+                  ),
                 ),
               ],
             ),
@@ -461,9 +488,15 @@ class _DashboardScreenState extends State<DashboardScreen>
 }
 
 class BaseLayout extends StatefulWidget {
-  const BaseLayout({super.key, required this.child, required this.appBarTitle});
+  const BaseLayout({
+    super.key,
+    required this.child,
+    required this.appBarTitle,
+    required this.showBackButton,
+  });
   final Widget child;
   final String appBarTitle;
+  final bool showBackButton;
 
   @override
   State<BaseLayout> createState() => _BaseLayoutState();
@@ -471,20 +504,7 @@ class BaseLayout extends StatefulWidget {
 
 class _BaseLayoutState extends State<BaseLayout> {
   bool _isSidebarCollapsed = true;
-  bool _isDarkMode = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTheme();
-  }
-
-  Future<void> _loadTheme() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _isDarkMode = prefs.getBool('isDarkMode') ?? true;
-    });
-  }
+  final ThemeController themeController = Get.find<ThemeController>();
 
   Widget buildNavigationTile({
     required String title,
@@ -533,6 +553,7 @@ class _BaseLayoutState extends State<BaseLayout> {
 
   final List<Widget> appPages = [];
   final List<Map<String, dynamic>> navigationItems = [
+    {'title': 'Dasboard', 'icon': Icons.dashboard, 'page': DashboardScreen()},
     {
       'title': 'Ledger & Accounting',
       'icon': Icons.account_balance,
@@ -569,150 +590,184 @@ class _BaseLayoutState extends State<BaseLayout> {
     final width = MediaQuery.of(context).size.width;
     final isDesktop = width > 800;
 
-    return Theme(
-      data: _isDarkMode ? AppTheme.darkTheme : AppTheme.lightTheme,
-      child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          title: Text(
-            widget.appBarTitle,
-            style: Theme.of(context).textTheme.titleLarge,
+    return SelectionArea(
+      child: Theme(
+        data: AppTheme.darkTheme,
+        child: Scaffold(
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          appBar: AppBar(
+            automaticallyImplyLeading: widget.showBackButton,
+            title: Text(
+              widget.appBarTitle,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
           ),
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-        ),
-        body: Row(
-          children: [
-            if (isDesktop)
-              AnimatedContainer(
+          body: Row(
+            children: [
+              AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
-                width: _isSidebarCollapsed ? 60 : 250,
-                clipBehavior: Clip.hardEdge, // avoid paint overflow on edges
-                color: Theme.of(context).colorScheme.primaryContainer,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    // Only show labels once we have enough width to avoid overflow during animation.
-                    final canShowLabel = constraints.maxWidth >= 140;
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SizeTransition(
+                    sizeFactor: animation,
+                    axis: Axis.horizontal,
+                    child: child,
+                  ),
+                ),
+                child: (!widget.showBackButton && isDesktop)
+                    ? AnimatedContainer(
+                        key: const ValueKey('sidebar'),
+                        duration: const Duration(milliseconds: 300),
+                        width: _isSidebarCollapsed ? 60 : 250,
+                        clipBehavior: Clip.hardEdge,
+                        color: Theme.of(context).colorScheme.primaryContainer,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final canShowLabel = constraints.maxWidth >= 140;
 
-                    return Column(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Tooltip(
-                          message: _isSidebarCollapsed
-                              ? "Open menu"
-                              : "Close menu",
-                          child: InkWell(
-                            onTap: () => setState(
-                              () => _isSidebarCollapsed = !_isSidebarCollapsed,
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.start,
-                                children: [
-                                  Icon(
-                                    _isSidebarCollapsed
-                                        ? Icons.menu
-                                        : Icons.menu_open,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.secondary,
-                                    size: 24,
-                                  ),
-                                  Flexible(
-                                    child: ClipRect(
-                                      child: AnimatedSwitcher(
-                                        duration: const Duration(
-                                          milliseconds: 200,
-                                        ),
-                                        switchInCurve: Curves.easeOut,
-                                        switchOutCurve: Curves.easeIn,
-                                        // prevent keeping the old (wider) child's size during transition
-                                        layoutBuilder:
-                                            (currentChild, previousChildren) =>
-                                                currentChild ??
-                                                const SizedBox.shrink(),
-                                        transitionBuilder: (child, animation) =>
-                                            FadeTransition(
-                                              opacity: animation,
-                                              child: SizeTransition(
-                                                sizeFactor: animation,
-                                                axis: Axis.horizontal,
-                                                child: child,
+                            return Column(
+                              mainAxisAlignment: MainAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Tooltip(
+                                  message: _isSidebarCollapsed
+                                      ? "Open menu"
+                                      : "Close menu",
+                                  child: InkWell(
+                                    onTap: () => setState(() {
+                                      _isSidebarCollapsed =
+                                          !_isSidebarCollapsed;
+                                    }),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(12),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.start,
+                                        children: [
+                                          Icon(
+                                            _isSidebarCollapsed
+                                                ? Icons.menu
+                                                : Icons.menu_open,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.secondary,
+                                            size: 24,
+                                          ),
+                                          Flexible(
+                                            child: ClipRect(
+                                              child: AnimatedSwitcher(
+                                                duration: const Duration(
+                                                  milliseconds: 200,
+                                                ),
+                                                switchInCurve: Curves.easeOut,
+                                                switchOutCurve: Curves.easeIn,
+                                                layoutBuilder:
+                                                    (
+                                                      currentChild,
+                                                      previousChildren,
+                                                    ) =>
+                                                        currentChild ??
+                                                        const SizedBox.shrink(),
+                                                transitionBuilder:
+                                                    (
+                                                      child,
+                                                      animation,
+                                                    ) => FadeTransition(
+                                                      opacity: animation,
+                                                      child: SizeTransition(
+                                                        sizeFactor: animation,
+                                                        axis: Axis.horizontal,
+                                                        child: child,
+                                                      ),
+                                                    ),
+                                                child: canShowLabel
+                                                    ? Padding(
+                                                        key: const ValueKey(
+                                                          'menu-label',
+                                                        ),
+                                                        padding:
+                                                            const EdgeInsets.only(
+                                                              left: 12,
+                                                            ),
+                                                        child: Text(
+                                                          "Menu",
+                                                          maxLines: 1,
+                                                          softWrap: false,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: Theme.of(context)
+                                                              .textTheme
+                                                              .titleLarge!
+                                                              .copyWith(
+                                                                color:
+                                                                    Theme.of(
+                                                                          context,
+                                                                        )
+                                                                        .colorScheme
+                                                                        .onSurface
+                                                                        .withOpacity(
+                                                                          0.8,
+                                                                        ),
+                                                              ),
+                                                        ),
+                                                      )
+                                                    : const SizedBox(
+                                                        key: ValueKey(
+                                                          'menu-empty',
+                                                        ),
+                                                        width: 0,
+                                                        height: 0,
+                                                      ),
                                               ),
                                             ),
-                                        child: canShowLabel
-                                            ? Padding(
-                                                key: const ValueKey(
-                                                  'menu-label',
-                                                ),
-                                                padding: const EdgeInsets.only(
-                                                  left: 12,
-                                                ),
-                                                child: Text(
-                                                  "Menu",
-                                                  maxLines: 1,
-                                                  softWrap: false,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .titleLarge!
-                                                      .copyWith(
-                                                        color: Theme.of(context)
-                                                            .colorScheme
-                                                            .onSurface
-                                                            .withValues(
-                                                              alpha: 0.8,
-                                                            ),
-                                                      ),
-                                                ),
-                                              )
-                                            : const SizedBox(
-                                                key: ValueKey('menu-empty'),
-                                                width: 0,
-                                                height: 0,
-                                              ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-                          ),
+                                ),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(left: 4.0),
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          ...List.generate(
+                                            navigationItems.length,
+                                            (index) => buildNavigationTile(
+                                              title:
+                                                  navigationItems[index]['title'],
+                                              icon:
+                                                  navigationItems[index]['icon'],
+                                              screen:
+                                                  navigationItems[index]['page'],
+                                              showLabel: canShowLabel,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
-                        Expanded(
-                          child: SingleChildScrollView(
-                            child: Padding(
-                              padding: const EdgeInsets.only(left: 4.0),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.start,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  ...List.generate(navigationItems.length, (
-                                    index,
-                                  ) {
-                                    return buildNavigationTile(
-                                      title: navigationItems[index]['title'],
-                                      icon: navigationItems[index]['icon'],
-                                      screen: navigationItems[index]['page'],
-                                      showLabel: canShowLabel,
-                                    );
-                                  }),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        // Optionally add the dark mode switch here.
-                      ],
-                    );
-                  },
-                ),
+                      )
+                    : const SizedBox.shrink(
+                        key: ValueKey('empty'),
+                      ), // empty when hidden
               ),
-            Expanded(child: widget.child),
-          ],
+              Expanded(child: widget.child),
+            ],
+          ),
         ),
       ),
     );
