@@ -64,6 +64,11 @@ class LedgerEntry {
   final double? canWeight;
   final int? cansQuantity;
   final double? sellingPricePerCan;
+  final String? paymentMethod;
+  final String? chequeNo;
+  final double? chequeAmount;
+  final DateTime? chequeDate;
+  final String? bankName;
 
   LedgerEntry({
     this.id,
@@ -92,12 +97,19 @@ class LedgerEntry {
     this.canWeight,
     this.cansQuantity,
     this.sellingPricePerCan,
+    this.paymentMethod,
+    this.chequeNo,
+    this.chequeAmount,
+    this.chequeDate,
+    this.bankName,
   });
+
   double get totalWeight {
     if (cansQuantity == null || canWeight == null) return 0.0;
     return cansQuantity! * canWeight!;
   }
 
+  /// Converts model to Map for database or API use
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -116,9 +128,9 @@ class LedgerEntry {
       'category': category,
       'tags': tags != null ? jsonEncode(tags) : null,
       'createdBy': createdBy,
-      'createdAt': createdAt.toIso8601String(),
       'balanceCans': balanceCans,
       'receivedCans': receivedCans,
+      'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'itemId': itemId,
       'itemName': itemName,
@@ -126,42 +138,56 @@ class LedgerEntry {
       'canWeight': canWeight,
       'cansQuantity': cansQuantity,
       'sellingPricePerCan': sellingPricePerCan,
+      'paymentMethod': paymentMethod,
+      'chequeNo': chequeNo,
+      'chequeAmount': chequeAmount,
+      'chequeDate': chequeDate?.toIso8601String(),
+      'bankName': bankName,
     };
   }
 
-  factory LedgerEntry.fromMap(Map<String, dynamic> map) {
-    DateTime parseDate(dynamic value) {
-      if (value == null) return DateTime.now();
-      if (value is String) {
-        try {
-          return DateTime.parse(value);
-        } catch (_) {
-          final parts = value.split('-');
-          if (parts.length == 3) {
-            final day = int.parse(parts[0]);
-            final month = int.parse(parts[1]);
-            final year = int.parse(parts[2]);
+  /// Converts model to JSON string
+  String toJson() => jsonEncode(toMap());
+
+  /// Helper for safe DateTime parsing
+  static DateTime _parseDate(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is DateTime) return value;
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (_) {
+        final parts = value.split('-');
+        if (parts.length == 3) {
+          final day = int.tryParse(parts[0]);
+          final month = int.tryParse(parts[1]);
+          final year = int.tryParse(parts[2]);
+          if (day != null && month != null && year != null) {
             return DateTime(year, month, day);
           }
         }
-      } else if (value is int) {
-        return DateTime.fromMillisecondsSinceEpoch(value);
       }
-      return DateTime.now();
     }
+    if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value);
+    }
+    return DateTime.now();
+  }
 
+  /// Creates model from Map
+  factory LedgerEntry.fromMap(Map<String, dynamic> map) {
     return LedgerEntry(
       id: map['id'],
-      ledgerNo: map['ledgerNo'],
-      voucherNo: map['voucherNo'],
+      ledgerNo: map['ledgerNo'] ?? '',
+      voucherNo: map['voucherNo'] ?? '',
       accountId: map['accountId'],
-      accountName: map['accountName'],
-      date: parseDate(map['date']),
-      transactionType: map['transactionType'],
-      debit: (map['debit'] as num).toDouble(),
-      credit: (map['credit'] as num).toDouble(),
-      balance: (map['balance'] as num).toDouble(),
-      status: map['status'],
+      accountName: map['accountName'] ?? '',
+      date: _parseDate(map['date']),
+      transactionType: map['transactionType'] ?? '',
+      debit: (map['debit'] ?? 0).toDouble(),
+      credit: (map['credit'] ?? 0).toDouble(),
+      balance: (map['balance'] ?? 0).toDouble(),
+      status: map['status'] ?? '',
       description: map['description'],
       referenceNo: map['referenceNo'],
       category: map['category'],
@@ -169,10 +195,10 @@ class LedgerEntry {
           ? List<String>.from(jsonDecode(map['tags']))
           : null,
       createdBy: map['createdBy'],
-      createdAt: parseDate(map['createdAt']),
       balanceCans: map['balanceCans'],
       receivedCans: map['receivedCans'],
-      updatedAt: parseDate(map['updatedAt']),
+      createdAt: _parseDate(map['createdAt']),
+      updatedAt: _parseDate(map['updatedAt']),
       itemId: map['itemId'],
       itemName: map['itemName'],
       itemPricePerUnit: map['itemPricePerUnit'] != null
@@ -185,8 +211,19 @@ class LedgerEntry {
       sellingPricePerCan: map['sellingPricePerCan'] != null
           ? (map['sellingPricePerCan'] as num).toDouble()
           : null,
+      paymentMethod: map['paymentMethod'],
+      chequeNo: map['chequeNo'],
+      chequeAmount: map['chequeAmount'] != null
+          ? (map['chequeAmount'] as num).toDouble()
+          : null,
+      chequeDate: _parseDate(map['chequeDate']),
+      bankName: map['bankName'],
     );
   }
+
+  /// Creates model from JSON string
+  factory LedgerEntry.fromJson(String source) =>
+      LedgerEntry.fromMap(jsonDecode(source));
 }
 
 class Ledger {

@@ -15,6 +15,10 @@ class CustomerAddEdit extends StatelessWidget {
     final controller = Get.find<CustomerController>();
     final isDesktop = MediaQuery.of(context).size.width > 800;
 
+    // 🧮 Ensure default value 0 for opening balance controller
+    controller.openingBalanceController.text =
+        customer?.openingBalance.toString() ?? '0';
+
     Widget buildTextField({
       required TextEditingController controller,
       required String label,
@@ -39,7 +43,7 @@ class CustomerAddEdit extends StatelessWidget {
           ),
         ),
         style: Theme.of(context).textTheme.bodySmall!.copyWith(
-          color: Theme.of(context).colorScheme.onSurface, // ✅ always visible
+          color: Theme.of(context).colorScheme.onSurface,
         ),
         keyboardType: keyboardType,
         validator: validator,
@@ -103,13 +107,13 @@ class CustomerAddEdit extends StatelessWidget {
                       child: isDesktop
                           ? Column(
                               children: [
+                                // 🧩 Type + Customer No
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Expanded(
                                       child: Obx(() {
                                         return DropdownButtonFormField<String>(
-                                          // Use value instead of initialValue
                                           initialValue: controller.type.value,
                                           items: [
                                             DropdownMenuItem(
@@ -147,7 +151,7 @@ class CustomerAddEdit extends StatelessWidget {
                                                 );
                                           },
                                           decoration: InputDecoration(
-                                            labelText: 'Vendor',
+                                            labelText: 'Type',
                                             labelStyle: Theme.of(context)
                                                 .textTheme
                                                 .bodyMedium!
@@ -161,17 +165,6 @@ class CustomerAddEdit extends StatelessWidget {
                                               borderRadius:
                                                   BorderRadius.circular(8),
                                             ),
-                                            errorStyle: TextStyle(
-                                              color: Colors.red[900],
-                                              fontSize: Theme.of(
-                                                context,
-                                              ).textTheme.bodySmall!.fontSize,
-                                            ),
-                                            contentPadding:
-                                                const EdgeInsets.symmetric(
-                                                  horizontal: 12,
-                                                  vertical: 16,
-                                                ),
                                           ),
                                         );
                                       }),
@@ -188,6 +181,8 @@ class CustomerAddEdit extends StatelessWidget {
                                   ],
                                 ),
                                 const SizedBox(height: 16),
+
+                                // 🧩 Name + Address
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -220,6 +215,8 @@ class CustomerAddEdit extends StatelessWidget {
                                   ],
                                 ),
                                 const SizedBox(height: 16),
+
+                                // 🧩 Mobile + NTN
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -249,12 +246,90 @@ class CustomerAddEdit extends StatelessWidget {
                                       child: buildTextField(
                                         controller: controller.ntnNoController,
                                         label: 'NTN No',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+
+                                // 💰 Opening Balance Field
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: buildTextField(
+                                        controller:
+                                            controller.openingBalanceController,
+                                        label: 'Opening Balance',
+                                        keyboardType:
+                                            const TextInputType.numberWithOptions(
+                                              decimal: true,
+                                            ),
                                         validator: (value) {
                                           if (value == null || value.isEmpty) {
-                                            return 'Please enter an NTN number';
+                                            return 'Please enter opening balance';
+                                          }
+                                          if (double.tryParse(value) == null) {
+                                            return 'Enter a valid number';
                                           }
                                           return null;
                                         },
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.allow(
+                                            RegExp(r'^\d*\.?\d{0,2}'),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          TextButton(
+                                            onPressed: () {
+                                              controller.clearForm();
+                                              Navigator.pop(context);
+                                            },
+                                            child: Text(
+                                              'Cancel',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall!
+                                                  .copyWith(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface
+                                                        .withValues(alpha: 0.8),
+                                                  ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 16),
+                                          ElevatedButton(
+                                            onPressed: () =>
+                                                controller.saveCustomer(
+                                                  context,
+                                                  customer: customer,
+                                                ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Theme.of(
+                                                context,
+                                              ).colorScheme.primary,
+                                              foregroundColor: Theme.of(
+                                                context,
+                                              ).iconTheme.color,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              'Save',
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.bodySmall,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],
@@ -312,57 +387,84 @@ class CustomerAddEdit extends StatelessWidget {
                                 buildTextField(
                                   controller: controller.ntnNoController,
                                   label: 'NTN No',
+                                ),
+                                const SizedBox(height: 16),
+                                buildTextField(
+                                  controller:
+                                      controller.openingBalanceController,
+                                  label: 'Opening Balance',
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
-                                      return 'Please enter an NTN number';
+                                      return 'Please enter opening balance';
+                                    }
+                                    if (double.tryParse(value) == null) {
+                                      return 'Enter a valid number';
                                     }
                                     return null;
                                   },
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'^\d*\.?\d{0,2}'),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 16),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    TextButton(
+                                      onPressed: () {
+                                        controller.clearForm();
+                                        Navigator.pop(context);
+                                      },
+                                      child: Text(
+                                        'Cancel',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall!
+                                            .copyWith(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .withValues(alpha: 0.8),
+                                            ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    ElevatedButton(
+                                      onPressed: () => controller.saveCustomer(
+                                        context,
+                                        customer: customer,
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                        foregroundColor: Theme.of(
+                                          context,
+                                        ).iconTheme.color,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'Save',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () {
-                          controller.clearForm();
-                          Navigator.pop(context);
-                        },
-                        child: Text(
-                          'Cancel',
-                          style: Theme.of(context).textTheme.bodySmall!
-                              .copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.8),
-                              ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      ElevatedButton(
-                        onPressed: () => controller.saveCustomer(
-                          context,
-                          customer: customer,
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primary,
-                          foregroundColor: Theme.of(context).iconTheme.color,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: Text(
-                          'Save',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                    ],
                   ),
                 ],
               ),

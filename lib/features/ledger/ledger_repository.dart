@@ -25,6 +25,18 @@ class LedgerRepository {
     );
   }
 
+  Future<bool> ledgerExistsForCustomer(String customerName) async {
+    final db = await _dbHelper.database;
+    final result = await db.query(
+      'ledger',
+      columns: ['id'],
+      where: 'UPPER(accountName) = UPPER(?)',
+      whereArgs: [customerName],
+      limit: 1,
+    );
+    return result.isNotEmpty;
+  }
+
   Future<int> deleteLedger(int id) async {
     final db = await _dbHelper.database;
     return await db.delete('ledger', where: 'id = ?', whereArgs: [id]);
@@ -82,7 +94,6 @@ class LedgerRepository {
 
     // Ensure table exists before inserting
     await createLedgerEntryTable(ledgerNo);
-
     return await db.insert(tableName, entry.toMap());
   }
 
@@ -114,7 +125,45 @@ class LedgerRepository {
     final db = await _dbHelper.database;
     final tableName = _tableNameFromLedgerNo(ledgerNo);
 
-    return await db.delete(tableName, where: 'id = ?', whereArgs: [id]);
+    // First, get the entry details before deletion
+    final entryResult = await db.query(
+      tableName,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    if (entryResult.isEmpty) {
+      return 0; // Entry not found
+    }
+
+    final entry = LedgerEntry.fromMap(entryResult.first);
+
+    // Delete the entry
+    final deleteCount = await db.delete(
+      tableName,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    if (deleteCount > 0) {
+      // If entry has credit, update both credit and balance
+      if (entry.credit > 0) {
+        await updateLedgerDebtOrCred('credit', ledgerNo, -entry.credit);
+
+        // Also update balance by subtracting the credit amount
+        await db.rawUpdate(
+          'UPDATE ledger SET balance = balance - ? WHERE ledgerNo = ?',
+          [entry.credit, ledgerNo],
+        );
+      }
+
+      // If entry has debit, only update debit (balance unchanged)
+      if (entry.debit > 0) {
+        await updateLedgerDebtOrCred('debit', ledgerNo, -entry.debit);
+      }
+    }
+
+    return deleteCount;
   }
 
   Future<List<LedgerEntry>> getLedgerEntriesByCustomer(

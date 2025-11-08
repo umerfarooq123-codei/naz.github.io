@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/sales_invoicing/invoice_generator.dart';
 import 'package:ledger_master/main.dart';
+import 'package:ledger_master/shared/components/constants.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
@@ -16,11 +19,13 @@ import 'inventory_repository.dart';
 class ItemController extends GetxController {
   final Item? item;
   final InventoryRepository repo;
+
   final items = <Item>[].obs;
   final filteredItems = <Item>[].obs;
   final filteredItemLedgerEntry = <ItemLedgerEntry>[].obs;
   final isDarkMode = true.obs;
   final formKey = GlobalKey<FormState>();
+
   final nameController = TextEditingController();
   final typeController = TextEditingController();
   final pricePerKgController = TextEditingController();
@@ -29,8 +34,10 @@ class ItemController extends GetxController {
   final canWeightController = TextEditingController();
   final availableStockController = TextEditingController();
   final searchController = TextEditingController();
+
   List<ItemLedgerEntry> itemLedgerEntries = <ItemLedgerEntry>[].obs;
   final DataGridController dataGridController = DataGridController();
+
   final selectedType = 'powder'.obs;
   final selectedCustOrVend = ''.obs;
   final weightUnit = 'kg'.obs;
@@ -39,9 +46,12 @@ class ItemController extends GetxController {
   final selectedTransactionType = RxnString();
 
   ItemController(this.repo, this.item);
+
   final RxMap<String, double> columnWidths = <String, double>{}.obs;
 
-  // optional helper to set a default width only if not already set
+  // Add this to track if data needs refresh
+  final needsRefresh = true.obs;
+
   void ensureColumnWidth(String columnName, double width) {
     if (!columnWidths.containsKey(columnName)) {
       columnWidths[columnName] = width;
@@ -52,25 +62,31 @@ class ItemController extends GetxController {
   void onInit() {
     super.onInit();
     loadTheme();
-    fetchItems();
+    // Force initial fetch
+    fetchItems(force: true);
     loadRecentSearches();
-    // Listen to type changes to update weight unit
+
     ever(selectedType, (type) {
       weightUnit.value = type == 'liquid' ? 'L' : 'kg';
     });
 
-    // Listen to pricePerKg and canWeight changes for selling price calculation
     pricePerKgController.addListener(_calculateSellingPrice);
     canWeightController.addListener(_calculateSellingPrice);
 
-    // Listen to search query changes
     ever(searchQuery, (query) => filterItems(query));
+
+    // Listen for navigation events to refresh data
+    ever(needsRefresh, (refresh) {
+      if (refresh) {
+        fetchItems(force: true);
+        needsRefresh.value = false;
+      }
+    });
   }
 
   void _calculateSellingPrice() {
     final pricePerKg = double.tryParse(pricePerKgController.text) ?? 0;
     final canWeight = double.tryParse(canWeightController.text) ?? 0;
-
     if (pricePerKg > 0 && canWeight > 0) {
       final totalPrice = pricePerKg * canWeight;
       sellingPriceController.text = totalPrice.toStringAsFixed(2);
@@ -82,10 +98,18 @@ class ItemController extends GetxController {
     isDarkMode.value = prefs.getBool('isDarkMode') ?? true;
   }
 
-  Future<void> fetchItems() async {
-    final data = await repo.getAllItems();
-    items.assignAll(data);
-    filterItems(searchQuery.value);
+  // Add force parameter to ensure fresh data
+  Future<void> fetchItems({bool force = false}) async {
+    try {
+      final data = await repo.getAllItems();
+      if (data.isNotEmpty || force) {
+        items.assignAll(data);
+        filterItems(searchQuery.value);
+        update(); // Force UI update
+      }
+    } catch (e) {
+      print('Error fetching items: $e');
+    }
   }
 
   void filterItems(String query) {
@@ -106,11 +130,13 @@ class ItemController extends GetxController {
         ),
       );
     }
+    update(); // Force UI update
   }
 
   Future<void> deleteItem(int id) async {
     await repo.deleteItem(id);
-    await fetchItems();
+    await fetchItems(force: true);
+    needsRefresh.value = true; // Trigger refresh
   }
 
   Future<void> loadItem({Item? item}) async {
@@ -125,25 +151,42 @@ class ItemController extends GetxController {
       canWeightController.text = item.canWeight.toString();
       availableStockController.text = item.availableStock.toString();
     }
+    update(); // Force UI update
   }
 
   Future<void> saveItem(BuildContext context) async {
-    final newItem = Item(
-      name: nameController.text.toUpperCase(),
-      type: selectedType.value,
-      vendor: selectedCustOrVend.value.toUpperCase(),
-    );
-
-    if (item == null) {
-      await repo.insertItem(newItem);
-      // await repo.insertItemLedgerEntry("", itemLedgerEntry);
-    } else {
-      await repo.updateItem(newItem);
+    if (!formKey.currentState!.validate()) {
+      return;
     }
-    clearForm();
-    await fetchItems();
-    if (context.mounted) {
-      Navigator.pop(context);
+
+    try {
+      final newItem = Item(
+        name: nameController.text.toUpperCase(),
+        type: selectedType.value,
+        vendor: selectedCustOrVend.value.toUpperCase(),
+        pricePerKg: double.tryParse(pricePerKgController.text) ?? 0.0,
+        costPrice: double.tryParse(costPriceController.text) ?? 0.0,
+        sellingPrice: double.tryParse(sellingPriceController.text) ?? 0.0,
+        canWeight: double.tryParse(canWeightController.text) ?? 0.0,
+        availableStock: double.tryParse(availableStockController.text) ?? 0.0,
+      );
+
+      if (item == null) {
+        await repo.insertItem(newItem);
+      } else {
+        await repo.updateItem(newItem);
+      }
+
+      clearForm();
+      await fetchItems(force: true); // Force refresh after save
+      needsRefresh.value = true; // Trigger global refresh
+
+      if (context.mounted) {
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      print('Error saving item: $e');
+      Get.snackbar('Error', 'Failed to save item: $e');
     }
   }
 
@@ -155,6 +198,8 @@ class ItemController extends GetxController {
     sellingPriceController.clear();
     canWeightController.clear();
     availableStockController.clear();
+    selectedCustOrVend.value = '';
+    update(); // Force UI update
   }
 
   Future<void> loadRecentSearches() async {
@@ -165,18 +210,13 @@ class ItemController extends GetxController {
   Future<void> saveRecentSearch(String searchTerm) async {
     if (searchTerm.trim().isEmpty) return;
 
-    // Remove if already exists to avoid duplicates
     recentSearches.remove(searchTerm.trim());
-
-    // Add to beginning of list
     recentSearches.insert(0, searchTerm.trim());
 
-    // Keep only the last 5 searches
     if (recentSearches.length > 5) {
       recentSearches.removeLast();
     }
 
-    // Save to shared preferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('itemRecentSearches', recentSearches.toList());
   }
@@ -184,10 +224,30 @@ class ItemController extends GetxController {
   void clearSearch() {
     searchController.clear();
     searchQuery.value = '';
+    update(); // Force UI update
   }
 
-  Future<void> getItemLedgerEntries(String ledgerName) async {
-    itemLedgerEntries = await repo.getItemLedgerEntries(ledgerName);
+  // Force refresh of ledger entries
+  Future<void> getItemLedgerEntries(
+    String ledgerName, {
+    bool force = false,
+  }) async {
+    try {
+      itemLedgerEntries = await repo.getItemLedgerEntries(ledgerName);
+      update(); // Force UI update
+    } catch (e) {
+      print('Error fetching ledger entries: $e');
+    }
+  }
+
+  // Add method to refresh single item
+  Future<Item?> refreshItem(int itemId) async {
+    try {
+      return await repo.getItemById(itemId);
+    } catch (e) {
+      print('Error refreshing item: $e');
+      return null;
+    }
   }
 
   @override
@@ -205,13 +265,11 @@ class ItemController extends GetxController {
 
 class ItemList extends StatelessWidget {
   const ItemList({super.key});
-
   @override
   Widget build(BuildContext context) {
     final itemController = Get.find<ItemController>();
     final custController = Get.find<CustomerController>();
     final isDesktop = MediaQuery.of(context).size.width > 800;
-
     WidgetsBinding.instance.addPostFrameCallback((callBack) {
       itemController.clearSearch();
     });
@@ -238,7 +296,7 @@ class ItemList extends StatelessWidget {
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           errorStyle: TextStyle(
-            color: Colors.red[900],
+            color: Theme.of(context).colorScheme.error,
             fontSize: Theme.of(context).textTheme.bodySmall!.fontSize,
           ),
           suffixText: suffixText,
@@ -268,7 +326,7 @@ class ItemList extends StatelessWidget {
       );
     }
 
-    void addItemDialog(Item item) {
+    void addItemDialog() {
       bool isError = false;
       showDialog(
         context: context,
@@ -282,146 +340,179 @@ class ItemList extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 content: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Obx(() {
-                        final selectedValue =
-                            itemController.selectedCustOrVend.value;
-                        final customers = custController.filteredCustomers
-                            .where(
-                              (cust) =>
-                                  cust.customerNo.toString().contains('VEN'),
-                            )
-                            .toList();
-                        return DropdownButtonFormField<String>(
-                          initialValue:
-                              selectedValue.isNotEmpty &&
-                                  customers.any(
-                                    (customer) =>
-                                        customer.name == selectedValue,
-                                  )
-                              ? selectedValue
-                              : null,
-                          items: [
-                            DropdownMenuItem(
-                              value: null,
-                              child: Text(
-                                'Select Vendor',
-                                style: Theme.of(context).textTheme.bodySmall!
-                                    .copyWith(color: Colors.grey),
-                              ),
-                            ),
-                            ...customers.map(
-                              (customer) => DropdownMenuItem(
-                                value: customer.name,
+                  child: Form(
+                    key: itemController.formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Obx(() {
+                          final selectedValue =
+                              itemController.selectedCustOrVend.value;
+                          final customers = custController.filteredCustomers
+                              .where(
+                                (cust) =>
+                                    cust.customerNo.toString().contains('VEN'),
+                              )
+                              .toList();
+                          return DropdownButtonFormField<String>(
+                            initialValue:
+                                selectedValue.isNotEmpty &&
+                                    customers.any(
+                                      (customer) =>
+                                          customer.name == selectedValue,
+                                    )
+                                ? selectedValue
+                                : null,
+                            items: [
+                              DropdownMenuItem(
+                                value: null,
                                 child: Text(
-                                  customer.name.toUpperCase(),
+                                  'Select Vendor',
                                   style: Theme.of(context).textTheme.bodySmall!
-                                      .copyWith(color: Colors.white),
+                                      .copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
+                                      ),
                                 ),
                               ),
+                              ...customers.map(
+                                (customer) => DropdownMenuItem(
+                                  value: customer.name,
+                                  child: Text(
+                                    customer.name.toUpperCase(),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall!
+                                        .copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurface,
+                                        ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              itemController.selectedCustOrVend.value =
+                                  value ?? '';
+                            },
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please select a vendor';
+                              }
+                              return null;
+                            },
+                            decoration: InputDecoration(
+                              labelText: 'Vendor',
+                              labelStyle: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium!
+                                  .copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.8),
+                                  ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              errorStyle: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                                fontSize: Theme.of(
+                                  context,
+                                ).textTheme.bodySmall!.fontSize,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 16,
+                              ),
                             ),
-                          ],
-                          onChanged: (value) {
-                            itemController.selectedCustOrVend.value =
-                                value ?? '';
+                          );
+                        }),
+                        SizedBox(height: 10),
+                        buildTextField(
+                          textController: itemController.nameController,
+                          label: 'Item Name',
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter item name';
+                            }
+                            return null;
                           },
-                          decoration: InputDecoration(
-                            labelText: 'Vendor',
-                            labelStyle: Theme.of(context).textTheme.bodyMedium!
-                                .copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface
-                                      .withValues(alpha: 0.8),
+                        ),
+                        SizedBox(height: 10),
+                        Obx(
+                          () => DropdownButtonFormField<String>(
+                            initialValue: itemController.selectedType.value,
+                            items: [
+                              DropdownMenuItem(
+                                value: 'powder',
+                                child: Text(
+                                  'Powder (kg)',
+                                  style: Theme.of(context).textTheme.bodySmall!,
                                 ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            errorStyle: TextStyle(
-                              color: Colors.red[900],
-                              fontSize: Theme.of(
-                                context,
-                              ).textTheme.bodySmall!.fontSize,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 16,
-                            ),
-                          ),
-                        );
-                      }),
-                      SizedBox(height: 10),
-                      buildTextField(
-                        textController: itemController.nameController,
-                        label: 'Item Name',
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter item name';
-                          }
-                          return null;
-                        },
-                      ),
-                      SizedBox(height: 10),
-                      Obx(
-                        () => DropdownButtonFormField<String>(
-                          initialValue: itemController.selectedType.value,
-                          items: [
-                            DropdownMenuItem(
-                              value: 'powder',
-                              child: Text(
-                                'Powder (kg)',
-                                style: Theme.of(context).textTheme.bodySmall!,
                               ),
-                            ),
-                            DropdownMenuItem(
-                              value: 'liquid',
-                              child: Text(
-                                'Liquid (L)',
-                                style: Theme.of(context).textTheme.bodySmall!,
-                              ),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            itemController.selectedType.value = value!;
-                          },
-                          decoration: InputDecoration(
-                            labelText: 'Item Type',
-                            labelStyle: Theme.of(context).textTheme.bodySmall!
-                                .copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface
-                                      .withValues(alpha: 0.8),
+                              DropdownMenuItem(
+                                value: 'liquid',
+                                child: Text(
+                                  'Liquid (L)',
+                                  style: Theme.of(context).textTheme.bodySmall!,
                                 ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            errorStyle: TextStyle(
-                              color: Colors.red[900],
-                              fontSize: Theme.of(
-                                context,
-                              ).textTheme.bodySmall!.fontSize,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 16,
+                              ),
+                            ],
+                            onChanged: (value) {
+                              itemController.selectedType.value = value!;
+                            },
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please select item type';
+                              }
+                              return null;
+                            },
+                            decoration: InputDecoration(
+                              labelText: 'Item Type',
+                              labelStyle: Theme.of(context).textTheme.bodySmall!
+                                  .copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.8),
+                                  ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              errorStyle: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                                fontSize: Theme.of(
+                                  context,
+                                ).textTheme.bodySmall!.fontSize,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 16,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      SizedBox(height: 10),
-                      if (isError)
-                        Text(
-                          'Please fill all the fields.',
-                          style: Theme.of(
-                            context,
-                          ).textTheme.bodySmall!.copyWith(color: Colors.red),
-                        ),
-                    ],
+                        SizedBox(height: 10),
+                        if (isError)
+                          Text(
+                            'Please fill all the fields.',
+                            style: Theme.of(context).textTheme.bodySmall!
+                                .copyWith(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 actions: [
                   TextButton(
                     onPressed: () {
-                      if (itemController.nameController.text.isNotEmpty &&
+                      if (itemController.formKey.currentState!.validate() &&
+                          itemController.nameController.text.isNotEmpty &&
                           itemController.selectedType.value.isNotEmpty &&
                           itemController.selectedCustOrVend.value.isNotEmpty) {
                         itemController.saveItem(context);
@@ -457,9 +548,11 @@ class ItemList extends StatelessWidget {
       );
     }
 
-    itemController.fetchItems();
-    return Obx(
-      () => Stack(
+    return Obx(() {
+      if (itemController.needsRefresh.value) {
+        itemController.fetchItems(force: true);
+      }
+      return Stack(
         children: [
           BaseLayout(
             showBackButton: false,
@@ -489,6 +582,11 @@ class ItemList extends StatelessWidget {
                           focusNode,
                           onFieldSubmitted,
                         ) {
+                          if (textEditingController.text !=
+                              itemController.searchQuery.value) {
+                            textEditingController.text =
+                                itemController.searchQuery.value;
+                          }
                           return TextField(
                             controller: textEditingController,
                             focusNode: focusNode,
@@ -564,126 +662,170 @@ class ItemList extends StatelessWidget {
                           padding: const EdgeInsets.all(16),
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: isDesktop ? 4 : 2,
+                                crossAxisCount: isDesktop ? 5 : 2,
                                 crossAxisSpacing: 16,
                                 mainAxisSpacing: 16,
-                                childAspectRatio: 3.5 / 1.8,
+                                childAspectRatio: 3.2 / 1.8,
                               ),
                           itemCount: itemController.filteredItems.length,
                           itemBuilder: (context, index) {
                             final item = itemController.filteredItems[index];
                             final unit = item.type == 'liquid' ? 'L' : 'kg';
-
                             return Card(
-                              color: Colors.white30,
-                              elevation: 4,
+                              elevation: 0,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                  12,
-                                ), // 👈 rounded corners here
-                                side: const BorderSide(
-                                  color: Colors.grey,
-                                ), // optional border
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.outlineVariant,
+                                  width: 1,
+                                ),
                               ),
                               child: InkWell(
-                                onTap: () {
-                                  NavigationHelper.push(
-                                    context,
-                                    LedgerTablePage(item: item),
-                                  );
+                                onTap: () async {
+                                  final refreshedItem = await itemController
+                                      .refreshItem(item.id!);
+                                  if (context.mounted) {
+                                    NavigationHelper.push(
+                                      context,
+                                      LedgerTablePage(
+                                        item: refreshedItem ?? item,
+                                      ),
+                                    );
+                                  }
                                 },
+                                borderRadius: BorderRadius.circular(12),
                                 child: Padding(
                                   padding: const EdgeInsets.all(8.0),
-                                  child: Column(
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.start,
-                                        children: [
-                                          Icon(
-                                            Icons.inventory,
-                                            color: Colors.white,
-                                            size: 30,
-                                          ), // darker for contrast
-                                          SizedBox(width: 10),
-                                          Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                item.name,
-                                                style: Theme.of(
-                                                  context,
-                                                ).textTheme.titleMedium,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              Text(
-                                                'Type: ${item.type}',
-                                                style: Theme.of(
-                                                  context,
-                                                ).textTheme.bodySmall,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              Text(
-                                                'Stock: ${item.availableStock} $unit',
-                                                style: Theme.of(
-                                                  context,
-                                                ).textTheme.bodySmall,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                      Spacer(),
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Expanded(
-                                            // 👈 forces left column to fit remaining width
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  'Can: ${item.canWeight} $unit',
-                                                  style: Theme.of(
-                                                    context,
-                                                  ).textTheme.bodySmall,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                                Text(
-                                                  'Rs ${item.sellingPrice}/can',
-                                                  style: Theme.of(
-                                                    context,
-                                                  ).textTheme.bodySmall,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                              ],
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.inventory,
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.primary,
+                                              size: 28,
                                             ),
-                                          ),
-                                          Row(
-                                            children: [
-                                              IconButton(
-                                                icon: const Icon(
-                                                  Icons.delete,
-                                                  size: 16,
-                                                ),
-                                                onPressed: () => itemController
-                                                    .deleteItem(item.id!),
+                                            SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    item.name,
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.titleMedium,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    maxLines: 1,
+                                                  ),
+                                                  Text(
+                                                    'Type: ${item.type}',
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.bodySmall,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                  Text(
+                                                    'Stock: ${item.availableStock} $unit',
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.bodySmall,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ],
                                               ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 6.0,
+                                                      vertical: 4.0,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .surfaceContainerLowest,
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      'Can: ${item.canWeight} $unit',
+                                                      style: Theme.of(
+                                                        context,
+                                                      ).textTheme.bodySmall!,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                    Text(
+                                                      'Rs ${item.sellingPrice}/can',
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .bodySmall!
+                                                          .copyWith(
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                            color:
+                                                                Theme.of(
+                                                                      context,
+                                                                    )
+                                                                    .colorScheme
+                                                                    .primary,
+                                                          ),
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            deleteButton(
+                                              context: context,
+                                              onPressed: () {
+                                                confirmDeleteDialog(
+                                                  onConfirm: () {
+                                                    itemController.deleteItem(
+                                                      item.id!,
+                                                    );
+                                                  },
+                                                  context: context,
+                                                );
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -700,19 +842,15 @@ class ItemList extends StatelessWidget {
             child: FloatingActionButton(
               onPressed: () async {
                 await itemController.loadItem();
-                final item = Item(name: '', type: '', vendor: '');
-                addItemDialog(item);
-                // if (context.mounted) {
-                //   NavigationHelper.push(context, const ItemAddEdit());
-                // }
-                // await itemController.fetchItems();
+                itemController.needsRefresh.value = true;
+                addItemDialog();
               },
               child: const Icon(Icons.add),
             ),
           ),
         ],
-      ),
-    );
+      );
+    });
   }
 }
 
@@ -727,7 +865,6 @@ class ItemAddEdit extends StatelessWidget {
     final isDesktop = MediaQuery.of(context).size.width > 800;
     final isEditing = item != null;
 
-    // Initialize item data for editing
     if (isEditing) {
       itemController.loadItem(item: item!);
     }
@@ -755,7 +892,7 @@ class ItemAddEdit extends StatelessWidget {
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           errorStyle: TextStyle(
-            color: Colors.red[900],
+            color: Theme.of(context).colorScheme.error,
             fontSize: Theme.of(context).textTheme.bodySmall!.fontSize,
           ),
           suffixText: suffixText,
@@ -785,7 +922,6 @@ class ItemAddEdit extends StatelessWidget {
       );
     }
 
-    // Create focus nodes for tab navigation
     final nameFocus = FocusNode();
     final typeFocus = FocusNode();
     final pricePerKgFocus = FocusNode();
@@ -906,7 +1042,9 @@ class ItemAddEdit extends StatelessWidget {
                                                         .textTheme
                                                         .bodySmall!
                                                         .copyWith(
-                                                          color: Colors.grey,
+                                                          color: Theme.of(context)
+                                                              .colorScheme
+                                                              .onSurfaceVariant,
                                                         ),
                                                   ),
                                                 ),
@@ -922,7 +1060,12 @@ class ItemAddEdit extends StatelessWidget {
                                                           .textTheme
                                                           .bodySmall!
                                                           .copyWith(
-                                                            color: Colors.white,
+                                                            color:
+                                                                Theme.of(
+                                                                      context,
+                                                                    )
+                                                                    .colorScheme
+                                                                    .onSurface,
                                                           ),
                                                     ),
                                                   ),
@@ -955,7 +1098,9 @@ class ItemAddEdit extends StatelessWidget {
                                                       BorderRadius.circular(8),
                                                 ),
                                                 errorStyle: TextStyle(
-                                                  color: Colors.red[900],
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.error,
                                                   fontSize: Theme.of(context)
                                                       .textTheme
                                                       .bodySmall!
@@ -1032,7 +1177,9 @@ class ItemAddEdit extends StatelessWidget {
                                             ),
                                           ),
                                           errorStyle: TextStyle(
-                                            color: Colors.red[900],
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.error,
                                             fontSize: Theme.of(
                                               context,
                                             ).textTheme.bodySmall!.fontSize,
@@ -1241,7 +1388,11 @@ class ItemAddEdit extends StatelessWidget {
                                               style: Theme.of(context)
                                                   .textTheme
                                                   .bodySmall!
-                                                  .copyWith(color: Colors.grey),
+                                                  .copyWith(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                  ),
                                             ),
                                           ),
                                           ...customers.map(
@@ -1253,7 +1404,9 @@ class ItemAddEdit extends StatelessWidget {
                                                     .textTheme
                                                     .bodySmall!
                                                     .copyWith(
-                                                      color: Colors.white,
+                                                      color: Theme.of(
+                                                        context,
+                                                      ).colorScheme.onSurface,
                                                     ),
                                               ),
                                             ),
@@ -1263,7 +1416,7 @@ class ItemAddEdit extends StatelessWidget {
                                           itemController
                                                   .selectedCustOrVend
                                                   .value =
-                                              value!;
+                                              value ?? '';
                                           FocusScope.of(
                                             context,
                                           ).requestFocus(nameFocus);
@@ -1285,7 +1438,9 @@ class ItemAddEdit extends StatelessWidget {
                                             ),
                                           ),
                                           errorStyle: TextStyle(
-                                            color: Colors.red[900],
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.error,
                                             fontSize: Theme.of(
                                               context,
                                             ).textTheme.bodySmall!.fontSize,
@@ -1348,7 +1503,9 @@ class ItemAddEdit extends StatelessWidget {
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     errorStyle: TextStyle(
-                                      color: Colors.red[900],
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.error,
                                       fontSize: Theme.of(
                                         context,
                                       ).textTheme.bodySmall!.fontSize,
@@ -1506,7 +1663,9 @@ class ItemAddEdit extends StatelessWidget {
                       onPressed: () => itemController.saveItem(context),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Theme.of(context).iconTheme.color,
+                        foregroundColor: Theme.of(
+                          context,
+                        ).colorScheme.onPrimary,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
@@ -1539,15 +1698,10 @@ class LedgerTablePage extends StatelessWidget {
       controller.loadLedgerEntries("${item.name}_${item.id}");
     });
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("Ledger Entries of: ${item.name}"),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: Obx(() {
+    return BaseLayout(
+      appBarTitle: "Ledger Entries of: ${item.name}",
+      showBackButton: true,
+      child: Obx(() {
         return Column(
           children: [
             Padding(
@@ -1562,15 +1716,30 @@ class LedgerTablePage extends StatelessWidget {
                         controller: controller.searchController,
                         onChanged: (value) =>
                             controller.searchQuery.value = value,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(color: Colors.white),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
                         decoration: InputDecoration(
                           labelText: "Search by Voucher No or Date",
-                          prefixIcon: Icon(Icons.search),
+                          labelStyle: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                           border: OutlineInputBorder(),
-                          hintStyle: Theme.of(context).textTheme.bodySmall,
-                          labelStyle: Theme.of(context).textTheme.bodySmall,
+                          hintStyle: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                         ),
                       ),
                     ),
@@ -1581,14 +1750,24 @@ class LedgerTablePage extends StatelessWidget {
                     child: TextFormField(
                       initialValue: item.name,
                       readOnly: true,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.white),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
                       decoration: InputDecoration(
                         labelText: "Ledger Name",
+                        labelStyle: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                         border: OutlineInputBorder(),
-                        hintStyle: Theme.of(context).textTheme.bodySmall,
-                        labelStyle: Theme.of(context).textTheme.bodySmall,
+                        hintStyle: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                       ),
                     ),
                   ),
@@ -1597,7 +1776,9 @@ class LedgerTablePage extends StatelessWidget {
                     flex: 1,
                     child: DropdownButtonFormField<String>(
                       initialValue: controller.selectedTransactionType.value,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
                       items: const [
                         DropdownMenuItem(value: null, child: Text("All Types")),
                         DropdownMenuItem(value: "Debit", child: Text("Debit")),
@@ -1611,9 +1792,19 @@ class LedgerTablePage extends StatelessWidget {
                       },
                       decoration: InputDecoration(
                         labelText: "Transaction Type",
+                        labelStyle: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                         border: OutlineInputBorder(),
-                        hintStyle: Theme.of(context).textTheme.bodySmall,
-                        labelStyle: Theme.of(context).textTheme.bodySmall,
+                        hintStyle: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                       ),
                     ),
                   ),
@@ -1623,16 +1814,31 @@ class LedgerTablePage extends StatelessWidget {
                     child: TextFormField(
                       controller: controller.fromDateController,
                       readOnly: true,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.white),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
                       decoration: InputDecoration(
                         labelText: "From Date",
+                        labelStyle: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                         border: const OutlineInputBorder(),
-                        hintStyle: Theme.of(context).textTheme.bodySmall,
-                        labelStyle: Theme.of(context).textTheme.bodySmall,
+                        hintStyle: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                         suffixIcon: IconButton(
-                          icon: const Icon(Icons.calendar_today),
+                          icon: Icon(
+                            Icons.calendar_today,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                           onPressed: () => controller.selectDate(context, true),
                         ),
                       ),
@@ -1644,17 +1850,32 @@ class LedgerTablePage extends StatelessWidget {
                     flex: 1,
                     child: TextFormField(
                       controller: controller.toDateController,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.white),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
                       readOnly: true,
                       decoration: InputDecoration(
-                        hintStyle: Theme.of(context).textTheme.bodySmall,
-                        labelStyle: Theme.of(context).textTheme.bodySmall,
                         labelText: "To Date",
+                        labelStyle: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                        hintStyle: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
-                          icon: const Icon(Icons.calendar_today),
+                          icon: Icon(
+                            Icons.calendar_today,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                           onPressed: () =>
                               controller.selectDate(context, false),
                         ),
@@ -1688,61 +1909,77 @@ class LedgerTablePage extends StatelessWidget {
                     child: const Center(child: CircularProgressIndicator()),
                   )
                 : Expanded(
-                    child: SfDataGrid(
-                      source: LedgerEntryDataSource(
-                        controller.filteredLedgerEntries,
-                        item,
-                        context,
-                      ),
-                      controller: controller.dataGridController,
-                      columnWidthMode: ColumnWidthMode.fill,
-                      gridLinesVisibility: GridLinesVisibility.both,
-                      headerGridLinesVisibility: GridLinesVisibility.both,
-                      placeholder: Center(
-                        child: Text(
-                          "No data available",
-                          style: Theme.of(context).textTheme.bodyLarge,
+                    child: Obx(() {
+                      return SfDataGrid(
+                        source: LedgerEntryDataSource(
+                          controller.filteredLedgerEntries,
+                          controller,
+                          context,
                         ),
-                      ),
-                      columns: [
-                        GridColumn(
-                          columnName: 'voucherNo',
-                          label: headerText("Voucher No", context),
+                        controller: controller.dataGridController,
+                        columnWidthMode: ColumnWidthMode.fill,
+                        gridLinesVisibility: GridLinesVisibility.both,
+                        headerGridLinesVisibility: GridLinesVisibility.both,
+                        placeholder: Center(
+                          child: Text(
+                            "No data available",
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
                         ),
-                        GridColumn(
-                          columnName: 'date',
-                          label: headerText("Date", context),
-                        ),
-                        GridColumn(
-                          columnName: 'item',
-                          label: headerText("Item", context),
-                        ),
-                        GridColumn(
-                          columnName: 'priceperkg',
-                          label: headerText("Price", context),
-                        ),
-                        GridColumn(
-                          columnName: 'canweight',
-                          label: headerText("Can weight", context),
-                        ),
-                        GridColumn(
-                          columnName: 'transactionType',
-                          label: headerText("Type", context),
-                        ),
-                        GridColumn(
-                          columnName: 'debit',
-                          label: headerText("Debit", context),
-                        ),
-                        GridColumn(
-                          columnName: 'credit',
-                          label: headerText("Credit", context),
-                        ),
-                        GridColumn(
-                          columnName: 'balance',
-                          label: headerText("Balance", context),
-                        ),
-                      ],
-                    ),
+                        onCellTap: (DataGridCellTapDetails details) {
+                          if (details.rowColumnIndex.rowIndex > 0) {
+                            final entry =
+                                controller.filteredLedgerEntries[details
+                                        .rowColumnIndex
+                                        .rowIndex -
+                                    1];
+                            showItemLedgerEntryDialog(context, entry);
+                          }
+                        },
+                        columns: [
+                          GridColumn(
+                            columnName: 'voucherNo',
+                            label: headerText("Voucher No", context),
+                          ),
+                          GridColumn(
+                            columnName: 'date',
+                            label: headerText("Date", context),
+                          ),
+                          GridColumn(
+                            columnName: 'item',
+                            label: headerText("Item", context),
+                          ),
+                          GridColumn(
+                            columnName: 'priceperkg',
+                            label: headerText("Price", context),
+                          ),
+                          GridColumn(
+                            columnName: 'canweight',
+                            label: headerText("Can weight", context),
+                          ),
+                          GridColumn(
+                            columnName: 'transactionType',
+                            label: headerText("Type", context),
+                          ),
+                          GridColumn(
+                            columnName: 'newStock',
+                            label: headerText("New Stock", context),
+                          ),
+                          GridColumn(
+                            columnName: 'debit',
+                            label: headerText("Debit", context),
+                          ),
+                          GridColumn(
+                            columnName: 'credit',
+                            label: headerText("Credit", context),
+                          ),
+                          GridColumn(
+                            columnName: 'balance',
+                            label: headerText("Balance", context),
+                          ),
+                        ],
+                      );
+                    }),
                   ),
             Container(
               alignment: Alignment.centerRight,
@@ -1772,7 +2009,7 @@ class LedgerTablePage extends StatelessWidget {
         "$label: ${NumberFormat('#,##0.00', 'en_US').format(value)}",
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
           fontWeight: FontWeight.bold,
-          color: Colors.white,
+          color: Theme.of(context).colorScheme.onSurface,
         ),
       ),
     );
@@ -1782,7 +2019,12 @@ class LedgerTablePage extends StatelessWidget {
     alignment: Alignment.center,
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0),
-      child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
+      ),
     ),
   );
 }
@@ -1790,12 +2032,19 @@ class LedgerTablePage extends StatelessWidget {
 class LedgerEntryDataSource extends DataGridSource {
   List<DataGridRow> _rows = [];
   final BuildContext context;
-  final Item item;
+  final ItemLedgerTableController controller;
+
   LedgerEntryDataSource(
     List<ItemLedgerEntry> entries,
-    this.item,
+    this.controller,
     this.context,
   ) {
+    _buildRows(entries);
+  }
+
+  void _buildRows(List<ItemLedgerEntry> entries) {
+    final item = controller.currentItem.value;
+
     _rows = entries.map((entry) {
       return DataGridRow(
         cells: [
@@ -1817,6 +2066,7 @@ class LedgerEntryDataSource extends DataGridSource {
             columnName: 'transactionType',
             value: entry.transactionType,
           ),
+          DataGridCell(columnName: 'newStock', value: entry.newStock),
           DataGridCell(columnName: 'debit', value: entry.debit),
           DataGridCell(columnName: 'credit', value: entry.credit),
           DataGridCell(columnName: 'balance', value: entry),
@@ -1862,43 +2112,91 @@ class LedgerEntryDataSource extends DataGridSource {
                       ),
                     ),
                     if (isHovered)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Tooltip(
-                            message: "print",
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () => printEntry(entry, rowIndex),
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 4.0),
-                                child: const Icon(Icons.print, size: 16),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surface.withValues(alpha: 0.95),
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.shadow.withValues(alpha: 0.1),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ///////////////////////////////
+                            Tooltip(
+                              message: "print",
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () => printEntry(entry, rowIndex),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 4.0),
+                                  child: Icon(
+                                    Icons.print_outlined,
+                                    size: 16,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                          Tooltip(
-                            message: "delete",
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () => deleteEntry(entry, context),
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 4.0),
-                                child: const Icon(Icons.delete, size: 16),
+                            Tooltip(
+                              message: "delete",
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () => confirmDeleteDialog(
+                                  onConfirm: () {
+                                    confirmDeleteDialog(
+                                      onConfirm: () {
+                                        deleteEntry(entry, context);
+                                      },
+                                      context: context,
+                                    );
+                                  },
+                                  context: context,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 4.0),
+                                  child: Icon(
+                                    Icons.delete_outline,
+                                    size: 16,
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                          Tooltip(
-                            message: "edit",
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () => editEntry(entry, context),
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 4.0),
-                                child: const Icon(Icons.edit, size: 16),
+                            Tooltip(
+                              message: "edit",
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () => editEntry(entry, context),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 4.0),
+                                  child: Icon(
+                                    Icons.edit_outlined,
+                                    size: 16,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                   ],
                 ),
@@ -1920,6 +2218,7 @@ class LedgerEntryDataSource extends DataGridSource {
                     cell.columnName == 'debit' || cell.columnName == 'credit'
                     ? FontWeight.w500
                     : null,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           ),
@@ -1929,26 +2228,24 @@ class LedgerEntryDataSource extends DataGridSource {
   }
 
   Future<void> printEntry(ItemLedgerEntry entry, int index) async {
-    final controller = Get.find<ItemLedgerTableController>();
+    final item = controller.currentItem.value;
     final customerController = Get.find<CustomerController>();
 
-    // Compute can quantities from debit/credit
     double currentCans = 0.0;
     double receivedCans = 0.0;
     final amount = entry.transactionType == 'Debit'
         ? entry.debit
         : entry.credit;
     if (item.pricePerKg > 0 && item.canWeight > 0) {
-      final weight = amount / item.pricePerKg; // Calculate weight from amount
-      final cans = weight / item.canWeight; // Calculate cans from weight
+      final weight = amount / item.pricePerKg;
+      final cans = weight / item.canWeight;
       if (entry.transactionType == 'Debit') {
-        currentCans = cans; // Debit = cans issued
+        currentCans = cans;
       } else {
-        receivedCans = cans; // Credit = cans received
+        receivedCans = cans;
       }
     }
 
-    // Compute running previous balance of cans
     final list = controller.filteredLedgerEntries;
     double runningPrevBalance = 0.0;
     for (int i = 0; i < index && i < list.length; i++) {
@@ -1963,38 +2260,30 @@ class LedgerEntryDataSource extends DataGridSource {
           : -prevCans);
     }
 
-    // Calculate totals
     final totalCans = runningPrevBalance + currentCans;
     final balanceCans = totalCans - receivedCans;
 
-    // Create ReceiptItem
     final items = [
       ReceiptItem(
         name: item.name,
         price: item.pricePerKg,
-        canQuantity: currentCans.round(), // Use integer for can quantity
+        canQuantity: currentCans.round(),
         type: entry.transactionType,
         description: '${entry.transactionType} transaction for ${item.name}',
         amount: amount,
       ),
     ];
 
-    // Fetch customer details (if applicable)
-    // Note: Since ItemLedgerEntry doesn't link to a customer, use placeholders
-    // If you have a way to link itemId to a customer, use customerController here
-    final customer = await customerController.repo.getCustomer(
-      '',
-    ); // Placeholder
+    final customer = await customerController.repo.getCustomer('');
     final customerName = customer?.name ?? 'N/A';
     final customerAddress = customer?.address ?? 'N/A';
 
-    // Create ReceiptData
     final data = ReceiptData(
       companyName: 'NAZ ENTERPRISES',
       date: DateFormat('dd/MM/yyyy').format(entry.createdAt),
       customerName: customerName,
       customerAddress: customerAddress,
-      vehicleNumber: 'N/A', // Replace with entry.vehicleNo if available
+      vehicleNumber: 'N/A',
       voucherNumber: entry.voucherNo,
       items: items,
       previousCans: runningPrevBalance,
@@ -2007,28 +2296,17 @@ class LedgerEntryDataSource extends DataGridSource {
       netBalance: entry.balance,
     );
 
-    // Generate and print PDF
     await ReceiptPdfGenerator.generateAndPrint(data);
   }
 
   void deleteEntry(ItemLedgerEntry entry, BuildContext context) async {
-    final controller = Get.find<ItemLedgerTableController>();
+    final item = controller.currentItem.value;
     try {
       await controller.repo.deleteItemLedgerEntry(
         "${item.name}_${item.id}",
         entry.id!,
       );
-      String reverseType = entry.transactionType == "Debit"
-          ? "Credit"
-          : "Debit";
-      double qty = entry.transactionType == "Debit"
-          ? entry.debit
-          : entry.credit;
-      await controller.repo.updateItemStock(
-        itemId: entry.itemId!,
-        transactionType: reverseType,
-        quantity: qty,
-      );
+
       await controller.loadLedgerEntries("${item.name}_${item.id}");
       Get.snackbar(
         'Success',
@@ -2046,14 +2324,15 @@ class LedgerEntryDataSource extends DataGridSource {
   }
 
   void editEntry(ItemLedgerEntry entry, BuildContext context) {
+    final item = controller.currentItem.value;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ItemLedgerEntryAddEdit(
           ledgerNo: "${item.name}_${item.id}",
           entry: entry,
           item: item,
-          onEntrySaved: () => Get.find<ItemLedgerTableController>()
-              .loadLedgerEntries("${item.name}_${item.id}"),
+          onEntrySaved: () =>
+              controller.loadLedgerEntries("${item.name}_${item.id}"),
         ),
       ),
     );
@@ -2087,7 +2366,13 @@ class ItemLedgerTableController extends GetxController {
   final RxMap<String, double> columnWidths = <String, double>{}.obs;
   final repo = InventoryRepository();
 
-  ItemLedgerTableController(this.item);
+  // ✅ Add observable for the item so it can be updated
+  late final Rx<Item> currentItem;
+
+  ItemLedgerTableController(Item initialItem) : item = initialItem {
+    // Initialize currentItem as observable
+    currentItem = initialItem.obs;
+  }
 
   @override
   void onInit() {
@@ -2109,6 +2394,18 @@ class ItemLedgerTableController extends GetxController {
       selectedTransactionType,
     ], (_) => applyFilters());
     applyFilters();
+  }
+
+  // ✅ Add method to refresh item data
+  Future<void> refreshItemData() async {
+    try {
+      final updatedItem = await repo.getItemById(item.id!);
+      if (updatedItem != null) {
+        currentItem.value = updatedItem;
+      }
+    } catch (e) {
+      print("❌ Error refreshing item: $e");
+    }
   }
 
   Future<void> applyFilters({String? ledgerNo}) async {
@@ -2163,9 +2460,7 @@ class ItemLedgerTableController extends GetxController {
 
       double runningBalance = 0;
       for (var entry in filtered) {
-        runningBalance += entry.transactionType == "Credit"
-            ? entry.credit
-            : -entry.debit;
+        runningBalance += entry.credit;
         entry.balance = runningBalance;
       }
 
@@ -2215,6 +2510,8 @@ class ItemLedgerTableController extends GetxController {
   }
 
   Future<void> loadLedgerEntries(String ledgerNo) async {
+    // ✅ Refresh item data when loading entries
+    await refreshItemData();
     await applyFilters(ledgerNo: ledgerNo);
   }
 
@@ -2228,7 +2525,8 @@ class ItemLedgerTableController extends GetxController {
 
   double get netBalance {
     if (filteredLedgerEntries.isEmpty) return 0;
-    return filteredLedgerEntries.last.balance;
+    final lastBalance = filteredLedgerEntries.last.balance;
+    return lastBalance < 0 ? 0 : lastBalance;
   }
 
   void handleRowSelection(int id, bool? selected) {
@@ -2312,6 +2610,7 @@ class ItemLedgerEntryAddEdit extends StatelessWidget {
       ItemLedgerEntryController(item),
     );
     final ScrollController scrollController = ScrollController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       controller.loadLedgerEntry(entry: entry, ledgerNo: ledgerNo, item: item);
@@ -2319,582 +2618,614 @@ class ItemLedgerEntryAddEdit extends StatelessWidget {
     });
 
     return Obx(
-      () => Scaffold(
-        appBar: AppBar(
-          title: Text(entry == null ? 'Add Ledger Entry' : 'Edit Ledger Entry'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              Navigator.of(context).pop();
-              controller.clearForm();
-              scrollController.dispose();
-            },
-          ),
-        ),
-        body: Center(
-          child: SingleChildScrollView(
-            controller: scrollController,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Container(
+      () => BaseLayout(
+        appBarTitle: entry == null ? 'Add Ledger Entry' : 'Edit Ledger Entry',
+        showBackButton: true,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Center(
+            child: Card(
+              elevation: isDark ? 4 : 0,
+              child: SingleChildScrollView(
+                controller: scrollController,
+                child: Padding(
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: LinearGradient(
-                      colors: [
-                        Theme.of(
-                          context,
-                        ).colorScheme.primary.withValues(alpha: 0.2),
-                        Theme.of(context).colorScheme.surface,
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+                  child: Card(
+                    elevation: isDark ? 4 : 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.2),
-                        blurRadius: 8,
-                        offset: const Offset(2, 2),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        gradient: isDark
+                            ? LinearGradient(
+                                colors: [
+                                  Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.2),
+                                  Theme.of(context).colorScheme.surface,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              )
+                            : null,
                       ),
-                    ],
-                  ),
-                  child: Form(
-                    key: controller.formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                      child: Form(
+                        key: controller.formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.voucherNoController,
-                                focusNode: controller.voucherNoFocusNode,
-                                label: 'Voucher No',
-                                readOnly: true,
-                                validator: (value) =>
-                                    value == null || value.isEmpty
-                                    ? 'Voucher No is required'
-                                    : null,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.itemIdController,
-                                focusNode: controller.itemIdFocusNode,
-                                label: 'Item ID',
-                                keyboardType: TextInputType.number,
-                                readOnly: true,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                ],
-                                validator: (value) =>
-                                    value == null || value.isEmpty
-                                    ? 'Item ID is required'
-                                    : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.itemWeightType,
-                                focusNode: controller.itemWeightTypeFocusNode,
-                                label: 'Type',
-                                readOnly: true,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.itemWeightPrevious,
-                                focusNode:
-                                    controller.itemWeightPreviousFocusNode,
-                                label: 'Available Stock',
-                                readOnly: true,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d*\.?\d*'),
-                                  ),
-                                ],
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Available Stock is required';
-                                  }
-                                  if (double.tryParse(value) == null) {
-                                    return 'Please enter a valid number';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.unitPriceController,
-                                focusNode:
-                                    controller.unitPriceControllerFocusNode,
-                                label: item.type.toLowerCase() == 'powder'
-                                    ? 'Price/kg'
-                                    : 'Price/L',
-                                readOnly: false,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d*\.?\d*'),
-                                  ),
-                                ],
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Unit Price is required';
-                                  }
-                                  if (double.tryParse(value) == null ||
-                                      double.parse(value) == 0.0) {
-                                    return 'Unit Price must be a non-zero number';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.costPriceController,
-                                focusNode: controller.costPriceFocusNode,
-                                label: 'Cost Price',
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d*\.?\d*'),
-                                  ),
-                                ],
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Cost Price is required';
-                                  }
-                                  if (double.tryParse(value) == null ||
-                                      double.parse(value) == 0.0) {
-                                    return 'Cost Price must be a non-zero number';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.sellingPriceController,
-                                focusNode: controller.sellingPriceFocusNode,
-                                label: 'Selling Price',
-                                readOnly: true,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d*\.?\d*'),
-                                  ),
-                                ],
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Selling Price is required';
-                                  }
-                                  if (double.tryParse(value) == null ||
-                                      double.parse(value) == 0.0) {
-                                    return 'Selling Price must be a non-zero number';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.canWeightController,
-                                focusNode: controller.canWeightFocusNode,
-                                label: 'Can Weight',
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d*\.?\d*'),
-                                  ),
-                                ],
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Can Weight is required';
-                                  }
-                                  if (double.tryParse(value) == null ||
-                                      double.parse(value) == 0.0) {
-                                    return 'Can Weight must be a non-zero number';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.itemWeightCurrent,
-                                focusNode:
-                                    controller.itemWeightCurrentFocusNode,
-                                label:
-                                    'New Stock (${item.type.toLowerCase() == 'powder' ? 'kg' : 'L'})',
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d*\.?\d*'),
-                                  ),
-                                ],
-                                validator: (value) {
-                                  if (!controller.arePriceFieldsValid()) {
-                                    return 'Please fill all price fields above first';
-                                  }
-                                  if (value == null || value.isEmpty) {
-                                    return 'New Stock is required';
-                                  }
-                                  if (double.tryParse(value) == null) {
-                                    return 'Please enter a valid number';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.itemNameController,
-                                focusNode: controller.itemNameFocusNode,
-                                label: 'Item Name',
-                                readOnly: true,
-                                validator: (value) =>
-                                    value == null || value.isEmpty
-                                    ? 'Item Name is required'
-                                    : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: DropdownButtonFormField<String>(
-                                initialValue:
-                                    controller.transactionType.value.isNotEmpty
-                                    ? controller.transactionType.value
-                                    : null,
-                                focusNode: controller.transactionTypeFocusNode,
-                                style: Theme.of(context).textTheme.bodyMedium,
-                                decoration: InputDecoration(
-                                  labelText: 'Transaction Type',
-                                  labelStyle: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium!
-                                      .copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurface
-                                            .withValues(alpha: 0.8),
-                                      ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.voucherNoController,
+                                    focusNode: controller.voucherNoFocusNode,
+                                    label: 'Voucher No',
+                                    readOnly: true,
+                                    validator: (value) =>
+                                        value == null || value.isEmpty
+                                        ? 'Voucher No is required'
+                                        : null,
                                   ),
                                 ),
-                                items: const ['Debit', 'Credit']
-                                    .map(
-                                      (t) => DropdownMenuItem<String>(
-                                        value: t,
-                                        child: Text(t),
-                                      ),
-                                    )
-                                    .toList(),
-                                onChanged: (value) {
-                                  if (!controller.arePriceFieldsValid()) {
-                                    Get.snackbar(
-                                      'Error',
-                                      'Please fill all price fields above first',
-                                      snackPosition: SnackPosition.BOTTOM,
-                                      backgroundColor: Colors.red,
-                                    );
-                                    return;
-                                  }
-                                  if (value != null) {
-                                    controller.transactionType.value = value;
-                                    controller.transactionTypeController.text =
-                                        value;
-                                    controller.updateTransactionFields();
-                                  }
-                                },
-                                validator: (value) =>
-                                    value == null || value.isEmpty
-                                    ? 'Transaction Type is required'
-                                    : null,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.debitController,
-                                focusNode: controller.debitFocusNode,
-                                label: 'Debit',
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d*\.?\d*'),
-                                  ),
-                                ],
-                                validator: (value) {
-                                  if (!controller.arePriceFieldsValid()) {
-                                    return 'Please fill all price fields above first';
-                                  }
-                                  if (value == null || value.isEmpty) {
-                                    return 'Debit is required';
-                                  }
-                                  if (double.tryParse(value) == null) {
-                                    return 'Please enter a valid number';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.creditController,
-                                focusNode: controller.creditFocusNode,
-                                label: 'Credit',
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d*\.?\d*'),
-                                  ),
-                                ],
-                                validator: (value) {
-                                  if (!controller.arePriceFieldsValid()) {
-                                    return 'Please fill all price fields above first';
-                                  }
-                                  if (value == null || value.isEmpty) {
-                                    return 'Credit is required';
-                                  }
-                                  if (double.tryParse(value) == null) {
-                                    return 'Please enter a valid number';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: buildTextField(
-                                context: context,
-                                controller: controller.balanceController,
-                                focusNode: controller.balanceFocusNode,
-                                label: 'Balance',
-                                readOnly: true,
-                                validator: (value) =>
-                                    value == null || value.isEmpty
-                                    ? 'Balance is required'
-                                    : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                controller: controller.createdAtController,
-                                readOnly: true,
-                                decoration: InputDecoration(
-                                  labelText: 'Created At',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  labelStyle: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium!
-                                      .copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurface
-                                            .withValues(alpha: 0.8),
-                                      ),
-                                  suffixIcon: IconButton(
-                                    icon: const Icon(Icons.calendar_today),
-                                    onPressed: () =>
-                                        controller.selectCreatedAt(context),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.itemIdController,
+                                    focusNode: controller.itemIdFocusNode,
+                                    label: 'Item ID',
+                                    keyboardType: TextInputType.number,
+                                    readOnly: true,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    validator: (value) =>
+                                        value == null || value.isEmpty
+                                        ? 'Item ID is required'
+                                        : null,
                                   ),
                                 ),
-                                validator: (value) =>
-                                    value == null || value.isEmpty
-                                    ? 'Created At is required'
-                                    : null,
-                              ),
+                              ],
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: TextFormField(
-                                controller: controller.updatedAtController,
-                                readOnly: true,
-                                decoration: InputDecoration(
-                                  labelText: 'Updated At',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  labelStyle: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium!
-                                      .copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurface
-                                            .withValues(alpha: 0.8),
-                                      ),
-                                  suffixIcon: IconButton(
-                                    icon: const Icon(Icons.calendar_today),
-                                    onPressed: () =>
-                                        controller.selectUpdatedAt(context),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.itemWeightType,
+                                    focusNode:
+                                        controller.itemWeightTypeFocusNode,
+                                    label: 'Type',
+                                    readOnly: true,
                                   ),
                                 ),
-                                validator: (value) =>
-                                    value == null || value.isEmpty
-                                    ? 'Updated At is required'
-                                    : null,
-                              ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.itemWeightPrevious,
+                                    focusNode:
+                                        controller.itemWeightPreviousFocusNode,
+                                    label: 'Available Stock',
+                                    readOnly: true,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d*\.?\d*'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return 'Available Stock is required';
+                                      }
+                                      if (double.tryParse(value) == null) {
+                                        return 'Please enter a valid number';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TextButton(
-                              onPressed: () {
-                                Navigator.of(context).pop();
-                                controller.clearForm();
-                                scrollController.dispose();
-                              },
-                              child: Text(
-                                'Cancel',
-                                style: Theme.of(context).textTheme.bodyMedium!
-                                    .copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
-                                          .withValues(alpha: 0.8),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.unitPriceController,
+                                    focusNode:
+                                        controller.unitPriceControllerFocusNode,
+                                    label: item.type.toLowerCase() == 'powder'
+                                        ? 'Price/kg'
+                                        : 'Price/L',
+                                    readOnly: false,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d*\.?\d*'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return 'Unit Price is required';
+                                      }
+                                      if (double.tryParse(value) == null ||
+                                          double.parse(value) == 0.0) {
+                                        return 'Unit Price must be a non-zero number';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.costPriceController,
+                                    focusNode: controller.costPriceFocusNode,
+                                    label: 'Cost Price',
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d*\.?\d*'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return 'Cost Price is required';
+                                      }
+                                      if (double.tryParse(value) == null ||
+                                          double.parse(value) == 0.0) {
+                                        return 'Cost Price must be a non-zero number';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller:
+                                        controller.sellingPriceController,
+                                    focusNode: controller.sellingPriceFocusNode,
+                                    label: 'Selling Price',
+                                    readOnly: true,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d*\.?\d*'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return 'Selling Price is required';
+                                      }
+                                      if (double.tryParse(value) == null ||
+                                          double.parse(value) == 0.0) {
+                                        return 'Selling Price must be a non-zero number';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.canWeightController,
+                                    focusNode: controller.canWeightFocusNode,
+                                    label: 'Can Weight',
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d*\.?\d*'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return 'Can Weight is required';
+                                      }
+                                      if (double.tryParse(value) == null ||
+                                          double.parse(value) == 0.0) {
+                                        return 'Can Weight must be a non-zero number';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.itemWeightCurrent,
+                                    focusNode:
+                                        controller.itemWeightCurrentFocusNode,
+                                    label:
+                                        'New Stock (${item.type.toLowerCase() == 'powder' ? 'kg' : 'L'})',
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d*\.?\d*'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (!controller.arePriceFieldsValid()) {
+                                        return 'Please fill all price fields above first';
+                                      }
+                                      if (value == null || value.isEmpty) {
+                                        return 'New Stock is required';
+                                      }
+                                      if (double.tryParse(value) == null) {
+                                        return 'Please enter a valid number';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.itemNameController,
+                                    focusNode: controller.itemNameFocusNode,
+                                    label: 'Item Name',
+                                    readOnly: true,
+                                    validator: (value) =>
+                                        value == null || value.isEmpty
+                                        ? 'Item Name is required'
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<String>(
+                                    initialValue:
+                                        controller
+                                            .transactionType
+                                            .value
+                                            .isNotEmpty
+                                        ? controller.transactionType.value
+                                        : null,
+                                    focusNode:
+                                        controller.transactionTypeFocusNode,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                    decoration: InputDecoration(
+                                      labelText: 'Transaction Type',
+                                      labelStyle: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium!
+                                          .copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                          ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
                                     ),
-                              ),
+                                    items: const ['Debit', 'Credit']
+                                        .map(
+                                          (t) => DropdownMenuItem<String>(
+                                            value: t,
+                                            child: Text(t),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: (value) {
+                                      if (!controller.arePriceFieldsValid()) {
+                                        Get.snackbar(
+                                          'Error',
+                                          'Please fill all price fields above first',
+                                          snackPosition: SnackPosition.BOTTOM,
+                                          backgroundColor: Theme.of(
+                                            context,
+                                          ).colorScheme.error,
+                                          colorText: Theme.of(
+                                            context,
+                                          ).colorScheme.onError,
+                                        );
+                                        return;
+                                      }
+                                      if (value != null) {
+                                        controller.transactionType.value =
+                                            value;
+                                        controller
+                                                .transactionTypeController
+                                                .text =
+                                            value;
+                                        controller.updateTransactionFields();
+                                      }
+                                    },
+                                    validator: (value) =>
+                                        value == null || value.isEmpty
+                                        ? 'Transaction Type is required'
+                                        : null,
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.debitController,
+                                    focusNode: controller.debitFocusNode,
+                                    label: 'Debit',
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d*\.?\d*'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (!controller.arePriceFieldsValid()) {
+                                        return 'Please fill all price fields above first';
+                                      }
+                                      if (value == null || value.isEmpty) {
+                                        return 'Debit is required';
+                                      }
+                                      if (double.tryParse(value) == null) {
+                                        return 'Please enter a valid number';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 16),
-                            ElevatedButton(
-                              onPressed: () async {
-                                if (controller.formKey.currentState!
-                                    .validate()) {
-                                  final entry = await controller
-                                      .saveLedgerEntry(context, ledgerNo);
-                                  if (entry != null) {
-                                    if (onEntrySaved != null) {
-                                      onEntrySaved!();
-                                    }
-                                    if (context.mounted) {
-                                      Navigator.of(context).pop();
-                                      Get.snackbar(
-                                        'Success',
-                                        'Ledger entry saved successfully',
-                                        snackPosition: SnackPosition.BOTTOM,
-                                        backgroundColor: Colors.green,
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.creditController,
+                                    focusNode: controller.creditFocusNode,
+                                    label: 'Credit',
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d*\.?\d*'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (!controller.arePriceFieldsValid()) {
+                                        return 'Please fill all price fields above first';
+                                      }
+                                      if (value == null || value.isEmpty) {
+                                        return 'Credit is required';
+                                      }
+                                      if (double.tryParse(value) == null) {
+                                        return 'Please enter a valid number';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildTextField(
+                                    context: context,
+                                    controller: controller.balanceController,
+                                    focusNode: controller.balanceFocusNode,
+                                    label: 'Balance',
+                                    readOnly: true,
+                                    validator: (value) =>
+                                        value == null || value.isEmpty
+                                        ? 'Balance is required'
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: controller.createdAtController,
+                                    readOnly: true,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                    decoration: InputDecoration(
+                                      labelText: 'Created At',
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      labelStyle: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium!
+                                          .copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                          ),
+                                      suffixIcon: IconButton(
+                                        icon: Icon(
+                                          Icons.calendar_today,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                        ),
+                                        onPressed: () =>
+                                            controller.selectCreatedAt(context),
+                                      ),
+                                    ),
+                                    validator: (value) =>
+                                        value == null || value.isEmpty
+                                        ? 'Created At is required'
+                                        : null,
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: controller.updatedAtController,
+                                    readOnly: true,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                    decoration: InputDecoration(
+                                      labelText: 'Updated At',
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      labelStyle: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium!
+                                          .copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                          ),
+                                      suffixIcon: IconButton(
+                                        icon: Icon(
+                                          Icons.calendar_today,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                        ),
+                                        onPressed: () =>
+                                            controller.selectUpdatedAt(context),
+                                      ),
+                                    ),
+                                    validator: (value) =>
+                                        value == null || value.isEmpty
+                                        ? 'Updated At is required'
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.of(context).pop();
+                                    controller.clearForm();
+                                    scrollController.dispose();
+                                  },
+                                  child: Text(
+                                    'Cancel',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium!
+                                        .copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                        ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                ElevatedButton(
+                                  onPressed: () async {
+                                    if (controller.formKey.currentState!
+                                        .validate()) {
+                                      final entry = await controller
+                                          .saveLedgerEntry(context, ledgerNo);
+                                      if (entry != null) {
+                                        if (onEntrySaved != null) {
+                                          onEntrySaved!();
+                                        }
+                                        if (context.mounted) {
+                                          Navigator.of(context).pop();
+                                          Get.snackbar(
+                                            'Success',
+                                            'Ledger entry saved successfully',
+                                            snackPosition: SnackPosition.BOTTOM,
+                                            backgroundColor: Theme.of(
+                                              context,
+                                            ).colorScheme.primaryContainer,
+                                            colorText: Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimaryContainer,
+                                          );
+                                        }
+                                        scrollController.dispose();
+                                      }
+                                    } else {
+                                      _requestFocusForInvalidField(
+                                        controller,
+                                        context,
                                       );
                                     }
-                                    scrollController.dispose();
-                                  }
-                                } else {
-                                  _requestFocusForInvalidField(
-                                    controller,
-                                    context,
-                                  );
-                                }
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Theme.of(
-                                  context,
-                                ).colorScheme.primary,
-                                foregroundColor: Theme.of(
-                                  context,
-                                ).iconTheme.color,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    foregroundColor: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimary,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'Save',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium!
+                                        .copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimary,
+                                        ),
+                                  ),
                                 ),
-                              ),
-                              child: Text(
-                                'Save',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -2948,7 +3279,7 @@ class ItemLedgerEntryAddEdit extends StatelessWidget {
     }
   }
 
-  Widget buildTextField({
+  Widget _buildTextField({
     required BuildContext context,
     required TextEditingController controller,
     required String label,
@@ -2965,15 +3296,15 @@ class ItemLedgerEntryAddEdit extends StatelessWidget {
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
       readOnly: readOnly,
+      style: Theme.of(context).textTheme.bodyMedium,
       decoration: InputDecoration(
         labelText: label,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         labelStyle: Theme.of(context).textTheme.bodyMedium!.copyWith(
-          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
       validator: validator,
-      style: Theme.of(context).textTheme.bodyMedium,
       onChanged: (value) {
         itemController.updateTransactionFields();
       },
@@ -3138,8 +3469,8 @@ class ItemLedgerEntryController extends GetxController {
     required Item item,
   }) async {
     ledgerNoController.text = ledgerNo;
-    previousBalance = await _getPreviousBalance(ledgerNo);
-    itemWeightPrevious.text = previousBalance!.toStringAsFixed(2);
+    // ---- NEW ----
+    itemWeightPrevious.text = item.availableStock.toStringAsFixed(2);
     updateBalance();
 
     if (entry != null) {
@@ -3222,60 +3553,34 @@ class ItemLedgerEntryController extends GetxController {
     return await repo.getLastVoucherNo(ledgerNo);
   }
 
-  Future<double> _getPreviousBalance(String ledgerNo) async {
-    final entries = await repo.getItemLedgerEntries(ledgerNo);
-    if (entries.isEmpty) return 0.0;
-    entries.sort((a, b) {
-      int dateComp = a.createdAt.compareTo(b.createdAt);
-      if (dateComp != 0) return dateComp;
-      return a.id!.compareTo(b.id!);
-    });
-    double running = 0.0;
-    for (var e in entries) {
-      running += e.transactionType == "Credit"
-          ? e.credit
-          : e.debit; // Changed to add debit
-    }
-    return running;
-  }
-
   Future<ItemLedgerEntry?> saveLedgerEntry(
     BuildContext context,
     String ledgerNo,
   ) async {
     if (!formKey.currentState!.validate()) {
-      if (kDebugMode) {
-        print("Form validation failed");
-      }
+      print("❌ Form validation failed");
       return null;
     }
+
     try {
+      print("\n🔍 --- saveLedgerEntry START ---");
+
       final itemId = int.tryParse(itemIdController.text);
+      print("📦 Parsed itemId: ${itemIdController.text} → $itemId");
+
       if (itemId == null) {
-        if (kDebugMode) {
-          print("Error: itemId is null or invalid: ${itemIdController.text}");
-        }
-        Get.snackbar(
-          'Error',
-          'Invalid Item ID',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-        );
+        print("❌ Invalid itemId");
+        Get.snackbar('Error', 'Invalid Item ID');
         return null;
       }
 
       final debit = double.tryParse(debitController.text) ?? 0.0;
       final credit = double.tryParse(creditController.text) ?? 0.0;
+      print("💰 debit=$debit | credit=$credit");
+
       if (debit == 0.0 && credit == 0.0) {
-        if (kDebugMode) {
-          print("Error: Both debit and credit are 0");
-        }
-        Get.snackbar(
-          'Error',
-          'Debit or Credit must be non-zero',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-        );
+        print("❌ Both debit and credit are 0");
+        Get.snackbar('Error', 'Debit or Credit must be non-zero');
         return null;
       }
 
@@ -3288,20 +3593,23 @@ class ItemLedgerEntryController extends GetxController {
         transactionType: transactionType.value,
         debit: debit,
         credit: credit,
+        newStock: double.parse(itemWeightCurrent.text),
         balance: double.tryParse(balanceController.text) ?? 0.0,
         createdAt: createdAt.value,
         updatedAt: updatedAt.value ?? DateTime.now(),
       );
 
+      print("🧾 Created entry object: ${entry.toString()}");
+
       final isEdit = entryId.value != 0;
       if (isEdit) {
-        if (kDebugMode) {
-          print("Editing existing entry with ID: ${entryId.value}");
-        }
+        print("✏️ Editing existing entry: ${entryId.value}");
         final oldEntry = await repo.getItemLedgerEntryById(
           ledgerNo,
           entryId.value,
         );
+        print("📄 Old entry: ${oldEntry?.toMap()}");
+
         if (oldEntry != null) {
           final reverseType = oldEntry.transactionType == "Debit"
               ? "Credit"
@@ -3309,39 +3617,21 @@ class ItemLedgerEntryController extends GetxController {
           final oldQty = oldEntry.transactionType == "Debit"
               ? oldEntry.debit
               : oldEntry.credit;
-          if (kDebugMode) {
-            print(
-              "Reversing old stock: itemId=$itemId, type=$reverseType, qty=$oldQty",
-            );
-          }
+
+          print("🔁 Reversing old entry: type=$reverseType, qty=$oldQty");
           await repo.updateItemStock(
             itemId: itemId,
             transactionType: reverseType,
             quantity: oldQty,
           );
         } else {
-          if (kDebugMode) {
-            print(
-              "Error: Could not find existing entry with ID: ${entryId.value}",
-            );
-          }
-          Get.snackbar(
-            'Error',
-            'Existing entry not found',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red,
-          );
+          print("❌ Could not find old entry");
+          Get.snackbar('Error', 'Existing entry not found');
           return null;
         }
       } else {
-        if (kDebugMode) {
-          print("Creating new entry for ledgerNo: $ledgerNo");
-          print("Saving entry: ${entry.toString()}");
-        }
-        final costPrice = double.tryParse(costPriceController.text) ?? 0.0;
-        final sellingPrice =
-            double.tryParse(sellingPriceController.text) ?? 0.0;
-        final canWeight = double.tryParse(canWeightController.text) ?? 0.0;
+        print("🆕 Creating new entry for ledgerNo: $ledgerNo");
+
         final item = Item(
           id: itemId,
           name: itemNameController.text,
@@ -3349,85 +3639,52 @@ class ItemLedgerEntryController extends GetxController {
           vendor: currentItem.vendor,
           availableStock: double.tryParse(itemWeightPrevious.text) ?? 0.0,
           pricePerKg: double.tryParse(unitPriceController.text) ?? 0.0,
-          costPrice: costPrice,
-          sellingPrice: sellingPrice,
-          canWeight: canWeight,
+          costPrice: double.tryParse(costPriceController.text) ?? 0.0,
+          sellingPrice: double.tryParse(sellingPriceController.text) ?? 0.0,
+          canWeight: double.tryParse(canWeightController.text) ?? 0.0,
         );
+
+        print("📦 Updating item before stock change: ${item.toMap()}");
         final updateResult = await repo.updateItem(item);
-        if (kDebugMode) {
-          print("Item update result: $updateResult");
-        }
-        if (updateResult <= 0) {
-          if (kDebugMode) {
-            print("Error: Failed to update item with ID: $itemId");
-          }
-          Get.snackbar(
-            'Error',
-            'Failed to update item details',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red,
-          );
-          return null;
-        }
+        print("✅ Item update result: $updateResult");
       }
 
       final result = await repo.insertItemLedgerEntry(ledgerNo, entry);
-      if (kDebugMode) {
-        print("Insert result: $result");
-      }
+      print("📘 Ledger entry inserted, result=$result");
+
       if (result <= 0) {
-        if (kDebugMode) {
-          print(
-            "Error: insertItemLedgerEntry returned $result, indicating failure",
-          );
-        }
-        Get.snackbar(
-          'Error',
-          'Failed to save ledger entry to database',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-        );
+        print("❌ insertItemLedgerEntry failed with result=$result");
+        Get.snackbar('Error', 'Failed to save ledger entry');
         return null;
       }
 
-      final qty = entry.transactionType == "Debit" ? entry.debit : entry.credit;
-      if (kDebugMode) {
-        print(
-          "Updating stock: itemId=$itemId, type=${entry.transactionType}, qty=$qty",
-        );
-      }
-      await repo.updateItemStock(
+      final qty = double.parse(itemWeightCurrent.text);
+      print(
+        "🧮 Calling updateItemStock(): itemId=$itemId | type=${entry.transactionType} | qty=$qty",
+      );
+
+      final stockResult = await repo.updateItemStock(
         itemId: itemId,
         transactionType: entry.transactionType,
         quantity: qty,
       );
+      print("📊 updateItemStock() result: $stockResult");
 
-      // Reload the current item to update prices
       final updatedItem = await repo.getItemById(itemId);
+      print("🔍 Updated item after stock change: ${updatedItem?.toMap()}");
+
       if (updatedItem != null) {
-        unitPriceController.text = updatedItem.pricePerKg != 0.0
-            ? updatedItem.pricePerKg.toStringAsFixed(2)
-            : "";
-        costPriceController.text = updatedItem.costPrice != 0.0
-            ? updatedItem.costPrice.toStringAsFixed(2)
-            : "";
-        canWeightController.text = updatedItem.canWeight != 0.0
-            ? updatedItem.canWeight.toStringAsFixed(2)
-            : "";
+        unitPriceController.text = updatedItem.pricePerKg.toStringAsFixed(2);
+        costPriceController.text = updatedItem.costPrice.toStringAsFixed(2);
+        canWeightController.text = updatedItem.canWeight.toStringAsFixed(2);
         _updateSellingPrice();
       }
 
+      print("🔚 --- saveLedgerEntry END ---\n");
       return entry;
-    } catch (e, stackTrace) {
-      if (kDebugMode) {
-        print("Error saving ledger entry: $e\nStackTrace: $stackTrace");
-      }
-      Get.snackbar(
-        'Error',
-        'Error saving entry: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red,
-      );
+    } catch (e, st) {
+      print("❌ Exception in saveLedgerEntry: $e\n$st");
+      Get.snackbar('Error', 'Error saving entry: $e');
       return null;
     }
   }

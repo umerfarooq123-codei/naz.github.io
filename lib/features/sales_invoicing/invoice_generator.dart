@@ -146,10 +146,10 @@ class ReceiptData {
 class ReceiptStyles {
   static const PdfColor black = PdfColors.black;
   static const PdfColor white = PdfColors.white;
-  static const double fontSizeSmall = 8.0;
-  static const double fontSizeNormal = 8.0;
-  static const double fontSizeHeader = 14.0;
-  static const double fontSizeTitle = 12.0;
+  static const double fontSizeSmall = 10.0;
+  static const double fontSizeNormal = 10.0;
+  static const double fontSizeHeader = 16.0;
+  static const double fontSizeTitle = 14.0;
   static const double padding =
       4.0; // Reduced padding for table rows as per "4 padding"
   static const double margin = 6.0;
@@ -220,37 +220,32 @@ class ReceiptStyles {
 }
 
 class ReceiptPdfGenerator {
-  /// Number formatter for thousands separators.
   static final NumberFormat _commaFormatter = NumberFormat('#,##0.##');
 
-  /// Formats a double/int with comma separators and removes .0/.00
   static String formatNumber(num value) {
     return _commaFormatter.format(value);
   }
 
-  /// Loads the logo image from assets with error handling.
   static Future<pw.MemoryImage> _loadLogo() async {
     try {
       final ByteData data = await rootBundle.load('assets/images/icon.png');
       return pw.MemoryImage(data.buffer.asUint8List());
     } catch (e) {
-      return pw.MemoryImage(Uint8List.fromList([])); // Empty image as fallback
+      return pw.MemoryImage(Uint8List.fromList([]));
     }
   }
 
-  /// Builds a single receipt content widget with all items in one centered table.
   static Future<pw.Widget> _buildReceiptContent(
     ReceiptData data,
     pw.TextStyle titleStyle,
     pw.TextStyle normalStyle,
     pw.TextStyle smallStyle,
     pw.TextStyle boldStyle,
-    pw.MemoryImage logo,
-  ) async {
-    // Helper function to create a signature line
+    pw.MemoryImage logo, {
+    bool showLogo = true, // 👈 added flag
+  }) async {
     pw.Widget signatureLine(String label, {bool isLeft = false}) {
       return pw.Expanded(
-        flex: isLeft ? 1 : 1,
         child: pw.Padding(
           padding: const pw.EdgeInsets.only(top: 20),
           child: pw.Column(
@@ -267,7 +262,7 @@ class ReceiptPdfGenerator {
       );
     }
 
-    // Header: Company details, customer info, and logo
+    // 🧾 HEADER
     final header = pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -325,24 +320,27 @@ class ReceiptPdfGenerator {
             ],
           ),
         ),
-        pw.Container(
-          width: 160,
-          height: 160,
-          child: logo.bytes.isNotEmpty
-              ? pw.Image(logo, fit: pw.BoxFit.contain)
-              : pw.Center(child: pw.Text('LOGO', style: smallStyle)),
-        ),
+
+        // 👇 Conditionally show logo
+        if (showLogo)
+          pw.Container(
+            width: 160,
+            height: 160,
+            child: logo.bytes.isNotEmpty
+                ? pw.Image(logo, fit: pw.BoxFit.contain)
+                : pw.Center(child: pw.Text('LOGO', style: smallStyle)),
+          ),
       ],
     );
 
-    // Items table
+    // 🧾 ITEMS TABLE
     final List<pw.TableRow> tableRows = [
       pw.TableRow(
         decoration: pw.BoxDecoration(color: PdfColors.grey200),
         children: [
           buildTableCell('Item', isHeader: true, boldStyle: boldStyle),
           buildTableCell('Price', isHeader: true, boldStyle: boldStyle),
-          buildTableCell('Can Qty', isHeader: true, boldStyle: boldStyle),
+          buildTableCell('Cans', isHeader: true, boldStyle: boldStyle),
           buildTableCell('Type', isHeader: true, boldStyle: boldStyle),
           buildTableCell('Description', isHeader: true, boldStyle: boldStyle),
           buildTableCell('Amount', isHeader: true, boldStyle: boldStyle),
@@ -371,7 +369,6 @@ class ReceiptPdfGenerator {
     final itemsTable = pw.Table(
       border: ReceiptStyles.tableBorder,
       children: tableRows,
-      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       columnWidths: {
         0: pw.FlexColumnWidth(0.8),
         1: pw.FlexColumnWidth(0.5),
@@ -382,57 +379,72 @@ class ReceiptPdfGenerator {
       },
     );
 
-    // Cans table
-    final List<pw.TableRow> canTableRows = [
-      pw.TableRow(
-        decoration: pw.BoxDecoration(color: PdfColors.grey200),
-        children: [
-          buildTableCell('Previous Cans', isHeader: true, boldStyle: boldStyle),
-          buildTableCell('Current Cans', isHeader: true, boldStyle: boldStyle),
-          buildTableCell('Total Cans', isHeader: true, boldStyle: boldStyle),
-          buildTableCell('Received Cans', isHeader: true, boldStyle: boldStyle),
-          buildTableCell('Balance Cans', isHeader: true, boldStyle: boldStyle),
-        ],
-      ),
-      pw.TableRow(
-        children: [
-          buildTableCell(
-            formatNumber(data.previousCans),
-            normalStyle: normalStyle,
-          ),
-          buildTableCell(
-            formatNumber(data.currentCans),
-            normalStyle: normalStyle,
-          ),
-          buildTableCell(
-            formatNumber(data.totalCans),
-            normalStyle: normalStyle,
-          ),
-          buildTableCell(
-            formatNumber(data.receivedCans),
-            normalStyle: normalStyle,
-          ),
-          buildTableCell(
-            formatNumber(data.balanceCans),
-            normalStyle: normalStyle,
-          ),
-        ],
-      ),
-    ];
+    // 🧮 CHECK if all cans are zero
+    final bool showCansTable =
+        !(data.previousCans == 0 &&
+            data.currentCans == 0 &&
+            data.totalCans == 0 &&
+            data.receivedCans == 0 &&
+            data.balanceCans == 0);
 
+    // 🧾 CANS TABLE (conditionally shown)
     final cansTable = pw.Table(
       border: ReceiptStyles.tableBorder,
-      children: canTableRows,
-      columnWidths: {
-        0: pw.FlexColumnWidth(1),
-        1: pw.FlexColumnWidth(1),
-        2: pw.FlexColumnWidth(1),
-        3: pw.FlexColumnWidth(1),
-        4: pw.FlexColumnWidth(1),
-      },
+      children: [
+        pw.TableRow(
+          decoration: pw.BoxDecoration(color: PdfColors.grey200),
+          children: [
+            buildTableCell(
+              'Previous Cans',
+              isHeader: true,
+              boldStyle: boldStyle,
+            ),
+            buildTableCell(
+              'Current Cans',
+              isHeader: true,
+              boldStyle: boldStyle,
+            ),
+            buildTableCell('Total Cans', isHeader: true, boldStyle: boldStyle),
+            buildTableCell(
+              'Received Cans',
+              isHeader: true,
+              boldStyle: boldStyle,
+            ),
+            buildTableCell(
+              'Balance Cans',
+              isHeader: true,
+              boldStyle: boldStyle,
+            ),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            buildTableCell(
+              formatNumber(data.previousCans),
+              normalStyle: normalStyle,
+            ),
+            buildTableCell(
+              formatNumber(data.currentCans),
+              normalStyle: normalStyle,
+            ),
+            buildTableCell(
+              formatNumber(data.totalCans),
+              normalStyle: normalStyle,
+            ),
+            buildTableCell(
+              formatNumber(data.receivedCans),
+              normalStyle: normalStyle,
+            ),
+            buildTableCell(
+              formatNumber(data.balanceCans),
+              normalStyle: normalStyle,
+            ),
+          ],
+        ),
+      ],
     );
 
-    // Footer totals
+    // 🧾 FOOTER
     final footer = pw.Padding(
       padding: const pw.EdgeInsets.only(top: 10),
       child: pw.Column(
@@ -490,6 +502,7 @@ class ReceiptPdfGenerator {
       ),
     );
 
+    // 🧾 COMPLETE PAGE
     return pw.Stack(
       children: [
         pw.Positioned.fill(
@@ -513,8 +526,10 @@ class ReceiptPdfGenerator {
             header,
             pw.SizedBox(height: 10),
             pw.Center(child: itemsTable),
-            pw.SizedBox(height: 10),
-            pw.Center(child: cansTable),
+            if (showCansTable) ...[
+              pw.SizedBox(height: 10),
+              pw.Center(child: cansTable),
+            ],
             footer,
           ],
         ),
@@ -522,7 +537,10 @@ class ReceiptPdfGenerator {
     );
   }
 
-  static Future<pw.Document> buildPdf(ReceiptData data) async {
+  static Future<pw.Document> buildPdf(
+    ReceiptData data, {
+    bool showLogo = true,
+  }) async {
     final pdf = pw.Document();
     final logo = await _loadLogo();
 
@@ -538,7 +556,9 @@ class ReceiptPdfGenerator {
       smallStyle,
       boldStyle,
       logo,
+      showLogo: showLogo,
     );
+
     final receiverCopy = await _buildReceiptContent(
       data,
       titleStyle,
@@ -546,6 +566,7 @@ class ReceiptPdfGenerator {
       smallStyle,
       boldStyle,
       logo,
+      showLogo: showLogo,
     );
 
     pdf.addPage(
@@ -553,69 +574,48 @@ class ReceiptPdfGenerator {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(ReceiptStyles.margin),
         build: (pw.Context context) {
-          return pw.ConstrainedBox(
-            constraints: pw.BoxConstraints(
-              maxWidth: PdfPageFormat.a4.width - 2 * ReceiptStyles.margin,
-              maxHeight: PdfPageFormat.a4.height - 2 * ReceiptStyles.margin,
-            ),
-            child: pw.Column(
-              children: [
-                pw.Expanded(
-                  child: pw.Padding(
-                    padding: const pw.EdgeInsets.all(8),
-                    child: pw.Stack(
-                      children: [
-                        officeCopy,
-                        pw.Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          child: pw.Align(
-                            alignment: pw.Alignment.bottomCenter,
-                            child: pw.Text('Office Copy', style: smallStyle),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                pw.Container(
-                  width: double.infinity,
-                  margin: const pw.EdgeInsets.symmetric(vertical: 4),
-                  child: pw.Container(
-                    height: 1,
-                    decoration: pw.BoxDecoration(
-                      border: pw.Border(
-                        bottom: pw.BorderSide(
-                          color: ReceiptStyles.black,
-                          width: 1,
-                          style: pw.BorderStyle.dashed,
+          return pw.Column(
+            children: [
+              pw.Expanded(
+                child: pw.Padding(
+                  padding: const pw.EdgeInsets.all(8),
+                  child: pw.Stack(
+                    children: [
+                      officeCopy,
+                      pw.Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: pw.Align(
+                          alignment: pw.Alignment.bottomCenter,
+                          child: pw.Text('Office Copy', style: smallStyle),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
-                pw.Expanded(
-                  child: pw.Padding(
-                    padding: const pw.EdgeInsets.all(8),
-                    child: pw.Stack(
-                      children: [
-                        receiverCopy,
-                        pw.Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          child: pw.Align(
-                            alignment: pw.Alignment.bottomCenter,
-                            child: pw.Text('Receiver Copy', style: smallStyle),
-                          ),
+              ),
+              pw.Divider(thickness: 1),
+              pw.Expanded(
+                child: pw.Padding(
+                  padding: const pw.EdgeInsets.all(8),
+                  child: pw.Stack(
+                    children: [
+                      receiverCopy,
+                      pw.Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: pw.Align(
+                          alignment: pw.Alignment.bottomCenter,
+                          child: pw.Text('Receiver Copy', style: smallStyle),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           );
         },
       ),
@@ -641,8 +641,11 @@ class ReceiptPdfGenerator {
     );
   }
 
-  static Future<String> saveToTempFile(ReceiptData data) async {
-    final pdf = await buildPdf(data);
+  static Future<String> saveToTempFile(
+    ReceiptData data, {
+    bool showLogo = true,
+  }) async {
+    final pdf = await buildPdf(data, showLogo: showLogo);
     final Uint8List bytes = await pdf.save();
     final Directory tempDir = await getTemporaryDirectory();
     final String filePath =
@@ -652,15 +655,18 @@ class ReceiptPdfGenerator {
     return filePath;
   }
 
-  static Future<void> printPdf(ReceiptData data) async {
-    final pdf = await buildPdf(data);
+  static Future<void> printPdf(ReceiptData data, {bool showLogo = true}) async {
+    final pdf = await buildPdf(data, showLogo: showLogo);
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => await pdf.save(),
     );
   }
 
-  static Future<void> generateAndPrint(ReceiptData data) async {
-    await saveToTempFile(data);
-    await printPdf(data);
+  static Future<void> generateAndPrint(
+    ReceiptData data, {
+    bool showLogo = true,
+  }) async {
+    await saveToTempFile(data, showLogo: showLogo);
+    await printPdf(data, showLogo: showLogo);
   }
 }

@@ -5,6 +5,7 @@ import 'package:ledger_master/core/models/ledger.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/features/ledger/ledger_repository.dart';
 import 'package:ledger_master/main.dart';
+import 'package:ledger_master/shared/components/constants.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -37,6 +38,7 @@ class CustomerList extends StatelessWidget {
       default:
         gridAxisCount = 5;
     }
+
     void showCustomerDetailsDialog(Customer customer) {
       showDialog(
         context: context,
@@ -68,6 +70,96 @@ class CustomerList extends StatelessWidget {
                 Text(
                   'NTN No: ${customer.ntnNo}',
                   style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 6.0,
+                    horizontal: 6.0,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                      width: 1,
+                    ),
+                  ),
+                  child: FutureBuilder<DebitCreditSummary>(
+                    future: controller.getCustomerDebitCredit(customer.name),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const SizedBox(height: 20, width: 20);
+                      }
+
+                      if (snapshot.hasError) {
+                        return Text(
+                          'Error: ${snapshot.error}',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        );
+                      }
+
+                      if (!snapshot.hasData) {
+                        return const Text('No data');
+                      }
+
+                      final summary = snapshot.data!;
+
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FutureBuilder(
+                            future: CustomerRepository()
+                                .getOpeningBalanceForCustomer(customer.name),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState ==
+                                  ConnectionState.waiting) {
+                                return const SizedBox(height: 20, width: 20);
+                              }
+                              return snapshot.data != 0 || snapshot.data != 0.0
+                                  ? Text(
+                                      "Opening Balance: ${NumberFormat('#,##0.00').format(snapshot.data)}",
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall!
+                                          .copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.error,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                    )
+                                  : SizedBox.shrink();
+                            },
+                          ),
+                          Text(
+                            'Credit: ${summary.credit}',
+                            style: Theme.of(context).textTheme.bodySmall!
+                                .copyWith(
+                                  color: Theme.of(context).colorScheme.error,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                          Text(
+                            'Debit: ${summary.debit}',
+                            style: Theme.of(context).textTheme.bodySmall!
+                                .copyWith(
+                                  color: const Color(0xFF2E7D32),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
@@ -101,7 +193,7 @@ class CustomerList extends StatelessWidget {
             showBackButton: false,
             appBarTitle: 'Customers & Vendors',
             child: Column(
-              mainAxisSize: MainAxisSize.min, // Shrink-wrap the outer Column
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Search bar (fixed at the top)
@@ -183,8 +275,7 @@ class CustomerList extends StatelessWidget {
                 Expanded(
                   child: SingleChildScrollView(
                     child: Column(
-                      mainAxisSize:
-                          MainAxisSize.min, // Shrink-wrap the inner Column
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         controller.filteredCustomers.isEmpty
                             ? Center(
@@ -208,139 +299,79 @@ class CustomerList extends StatelessWidget {
                               )
                             : GridView.builder(
                                 padding: const EdgeInsets.all(16),
-                                shrinkWrap:
-                                    true, // Allow GridView to size itself
-                                physics:
-                                    const NeverScrollableScrollPhysics(), // Disable GridView scrolling
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
                                 gridDelegate:
                                     SliverGridDelegateWithFixedCrossAxisCount(
                                       crossAxisCount: gridAxisCount,
                                       crossAxisSpacing: 10,
                                       mainAxisSpacing: 10,
-                                      childAspectRatio: 2.5 / 1.5,
+                                      childAspectRatio: 2.35 / 1.5,
                                     ),
                                 itemCount: controller.filteredCustomers.length,
                                 itemBuilder: (context, index) {
                                   final customer =
                                       controller.filteredCustomers[index];
-                                  final summary = controller
-                                      .getCustomerDebitCredit(customer.name);
 
                                   return Card(
-                                    color: Colors.white30,
-                                    elevation: 4,
+                                    elevation: 0,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12),
-                                      side: const BorderSide(
-                                        color: Colors.grey,
+                                      side: BorderSide(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.outlineVariant,
+                                        width: 1,
                                       ),
                                     ),
                                     child: InkWell(
                                       onTap: () =>
                                           showCustomerDetailsDialog(customer),
+                                      borderRadius: BorderRadius.circular(12),
                                       child: Padding(
                                         padding: const EdgeInsets.all(8.0),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize
-                                              .min, // Shrink-wrap inner Column
-                                          children: [
-                                            Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment
-                                                      .spaceBetween,
-                                              children: [
-                                                Icon(
-                                                  Icons.person,
-                                                  color: Colors.white,
-                                                  size: 30,
-                                                ),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    mainAxisSize: MainAxisSize
-                                                        .min, // Shrink-wrap
-                                                    children: [
-                                                      Text(
-                                                        customer.name
-                                                            .toUpperCase(),
-                                                        style: Theme.of(
-                                                          context,
-                                                        ).textTheme.titleMedium,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        maxLines: 1,
-                                                      ),
-                                                      Text(
-                                                        'No: ${customer.customerNo}',
-                                                        style: Theme.of(
-                                                          context,
-                                                        ).textTheme.bodySmall,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        maxLines: 1,
-                                                      ),
-                                                    ],
+                                        child: SingleChildScrollView(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  Icon(
+                                                    Icons.person,
+                                                    color: Theme.of(
+                                                      context,
+                                                    ).colorScheme.primary,
+                                                    size: 28,
                                                   ),
-                                                ),
-                                              ],
-                                            ),
-                                            const Spacer(),
-                                            Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment
-                                                      .spaceBetween,
-                                              children: [
-                                                Expanded(
-                                                  child: Container(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 6.0,
-                                                          horizontal: 6.0,
-                                                        ),
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.white,
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            4,
-                                                          ),
-                                                    ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
                                                     child: Column(
-                                                      mainAxisSize: MainAxisSize
-                                                          .min, // Shrink-wrap
                                                       crossAxisAlignment:
                                                           CrossAxisAlignment
                                                               .start,
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
                                                       children: [
                                                         Text(
-                                                          'Credit: ${summary.credit}',
-                                                          style: Theme.of(context)
-                                                              .textTheme
-                                                              .bodySmall!
-                                                              .copyWith(
-                                                                color:
-                                                                    Colors.red,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .bold,
-                                                              ),
+                                                          customer.name
+                                                              .toUpperCase(),
+                                                          style:
+                                                              Theme.of(context)
+                                                                  .textTheme
+                                                                  .titleMedium,
                                                           overflow: TextOverflow
                                                               .ellipsis,
                                                           maxLines: 1,
                                                         ),
                                                         Text(
-                                                          'Debit: ${summary.debit}',
-                                                          style: Theme.of(context)
-                                                              .textTheme
-                                                              .bodySmall!
-                                                              .copyWith(
-                                                                color: Colors
-                                                                    .green,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .bold,
-                                                              ),
+                                                          'No: ${customer.customerNo}',
+                                                          style: Theme.of(
+                                                            context,
+                                                          ).textTheme.bodySmall,
                                                           overflow: TextOverflow
                                                               .ellipsis,
                                                           maxLines: 1,
@@ -348,49 +379,202 @@ class CustomerList extends StatelessWidget {
                                                       ],
                                                     ),
                                                   ),
-                                                ),
-                                                Row(
-                                                  children: [
-                                                    IconButton(
-                                                      icon: const Icon(
-                                                        Icons.edit,
-                                                        size: 16,
-                                                      ),
-                                                      onPressed: () async {
-                                                        await controller
-                                                            .loadCustomer(
-                                                              customer:
-                                                                  customer,
-                                                            );
-                                                        if (context.mounted) {
-                                                          NavigationHelper.push(
-                                                            context,
-                                                            CustomerAddEdit(
-                                                              customer:
-                                                                  customer,
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Row(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Expanded(
+                                                    child: Container(
+                                                      decoration: BoxDecoration(
+                                                        color: Theme.of(context)
+                                                            .colorScheme
+                                                            .surfaceContainerLowest,
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              4,
                                                             ),
-                                                          );
-                                                        }
-                                                        await controller
-                                                            .fetchCustomers();
-                                                      },
-                                                    ),
-                                                    IconButton(
-                                                      icon: const Icon(
-                                                        Icons.delete,
-                                                        size: 16,
                                                       ),
-                                                      onPressed: () =>
-                                                          controller
-                                                              .deleteCustomer(
-                                                                customer.id!,
+                                                      child: FutureBuilder<DebitCreditSummary>(
+                                                        future: controller
+                                                            .getCustomerDebitCredit(
+                                                              customer.name,
+                                                            ),
+                                                        builder: (context, snapshot) {
+                                                          if (snapshot
+                                                                  .connectionState ==
+                                                              ConnectionState
+                                                                  .waiting) {
+                                                            return const SizedBox(
+                                                              height: 20,
+                                                              width: 20,
+                                                            );
+                                                          }
+
+                                                          if (snapshot
+                                                              .hasError) {
+                                                            return Text(
+                                                              'Error: ${snapshot.error}',
+                                                              style: TextStyle(
+                                                                color: Theme.of(
+                                                                  context,
+                                                                ).colorScheme.error,
                                                               ),
+                                                            );
+                                                          }
+
+                                                          if (!snapshot
+                                                              .hasData) {
+                                                            return const Text(
+                                                              'No data',
+                                                            );
+                                                          }
+
+                                                          final summary =
+                                                              snapshot.data!;
+
+                                                          return Column(
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
+                                                            crossAxisAlignment:
+                                                                CrossAxisAlignment
+                                                                    .start,
+                                                            children: [
+                                                              FutureBuilder(
+                                                                future: CustomerRepository()
+                                                                    .getOpeningBalanceForCustomer(
+                                                                      customer
+                                                                          .name,
+                                                                    ),
+                                                                builder:
+                                                                    (
+                                                                      context,
+                                                                      snapshot,
+                                                                    ) {
+                                                                      if (snapshot
+                                                                              .connectionState ==
+                                                                          ConnectionState
+                                                                              .waiting) {
+                                                                        return const SizedBox(
+                                                                          height:
+                                                                              20,
+                                                                          width:
+                                                                              20,
+                                                                        );
+                                                                      }
+                                                                      return snapshot.data !=
+                                                                                  0 ||
+                                                                              snapshot.data !=
+                                                                                  0.0
+                                                                          ? Text(
+                                                                              "Bal: ${NumberFormat('#,##0.00').format(snapshot.data)}",
+                                                                              style:
+                                                                                  Theme.of(
+                                                                                    context,
+                                                                                  ).textTheme.bodySmall!.copyWith(
+                                                                                    color: Theme.of(
+                                                                                      context,
+                                                                                    ).colorScheme.error,
+                                                                                    fontWeight: FontWeight.bold,
+                                                                                  ),
+                                                                              overflow: TextOverflow.ellipsis,
+                                                                              maxLines: 1,
+                                                                            )
+                                                                          : SizedBox.shrink();
+                                                                    },
+                                                              ),
+                                                              Text(
+                                                                'Credit: ${summary.credit}',
+                                                                style: Theme.of(context)
+                                                                    .textTheme
+                                                                    .bodySmall!
+                                                                    .copyWith(
+                                                                      color: Theme.of(
+                                                                        context,
+                                                                      ).colorScheme.error,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .bold,
+                                                                    ),
+                                                                overflow:
+                                                                    TextOverflow
+                                                                        .ellipsis,
+                                                                maxLines: 1,
+                                                              ),
+                                                              Text(
+                                                                'Debit: ${summary.debit}',
+                                                                style: Theme.of(context)
+                                                                    .textTheme
+                                                                    .bodySmall!
+                                                                    .copyWith(
+                                                                      color: const Color(
+                                                                        0xFF2E7D32,
+                                                                      ),
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .bold,
+                                                                    ),
+                                                                overflow:
+                                                                    TextOverflow
+                                                                        .ellipsis,
+                                                                maxLines: 1,
+                                                              ),
+                                                            ],
+                                                          );
+                                                        },
+                                                      ),
                                                     ),
-                                                  ],
-                                                ),
-                                              ],
-                                            ),
-                                          ],
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      deleteButton(
+                                                        context: context,
+                                                        onPressed: () {
+                                                          confirmDeleteDialog(
+                                                            onConfirm: () {
+                                                              controller
+                                                                  .deleteCustomer(
+                                                                    customer
+                                                                        .id!,
+                                                                  );
+                                                            },
+                                                            context: context,
+                                                          );
+                                                        },
+                                                      ),
+                                                      editButton(
+                                                        context: context,
+                                                        onPressed: () async {
+                                                          await controller
+                                                              .loadCustomer(
+                                                                customer:
+                                                                    customer,
+                                                              );
+                                                          if (context.mounted) {
+                                                            NavigationHelper.push(
+                                                              context,
+                                                              CustomerAddEdit(
+                                                                customer:
+                                                                    customer,
+                                                              ),
+                                                            );
+                                                          }
+                                                          await controller
+                                                              .fetchCustomers();
+                                                        },
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -432,6 +616,9 @@ class CustomerController extends GetxController {
   final isDarkMode = true.obs;
   final formKey = GlobalKey<FormState>();
   final nameController = TextEditingController();
+  final TextEditingController openingBalanceController = TextEditingController(
+    text: '0',
+  );
   final addressController = TextEditingController();
   final customerNoController = TextEditingController();
   final mobileNoController = TextEditingController();
@@ -547,7 +734,7 @@ class CustomerController extends GetxController {
     );
   }
 
-  DebitCreditSummary getCustomerDebitCredit(String customerName) {
+  Future<DebitCreditSummary> getCustomerDebitCredit(String customerName) async {
     final entries = getLedgerEntriesForCustomer(customerName);
     double debit = 0.0;
     double credit = 0.0;
@@ -557,8 +744,18 @@ class CustomerController extends GetxController {
       credit += entry.credit;
     }
 
-    // Add comma separators:
-    final formatter = NumberFormat('#,##0.00'); // e.g. 12,345.67
+    double openingBalance = 0.0;
+    try {
+      openingBalance = await repo.getOpeningBalanceForCustomer(customerName);
+    } catch (e) {
+      openingBalance = 0.0;
+    }
+
+    if (openingBalance > 0) {
+      credit += openingBalance;
+    }
+
+    final formatter = NumberFormat('#,##0.00');
     final debitFormatted = formatter.format(debit);
     final creditFormatted = formatter.format(credit);
 
@@ -605,6 +802,9 @@ class CustomerController extends GetxController {
 
   Future<void> saveCustomer(BuildContext context, {Customer? customer}) async {
     if (formKey.currentState!.validate()) {
+      final double openingBalance =
+          double.tryParse(openingBalanceController.text.trim()) ?? 0.0;
+
       final newCustomer = Customer(
         id: customer?.id,
         name: nameController.text,
@@ -613,6 +813,7 @@ class CustomerController extends GetxController {
         mobileNo: mobileNoController.text,
         ntnNo: ntnNoController.text,
         type: type.value,
+        openingBalance: openingBalance,
       );
 
       if (customer == null) {
@@ -633,6 +834,7 @@ class CustomerController extends GetxController {
     addressController.clear();
     mobileNoController.clear();
     ntnNoController.clear();
+    openingBalanceController.clear();
   }
 
   @override
@@ -643,6 +845,7 @@ class CustomerController extends GetxController {
     mobileNoController.dispose();
     ntnNoController.dispose();
     searchController.dispose();
+    openingBalanceController.dispose();
     super.onClose();
   }
 }

@@ -9,10 +9,13 @@ import 'package:ledger_master/core/models/customer.dart';
 import 'package:ledger_master/core/models/item.dart';
 import 'package:ledger_master/core/models/ledger.dart';
 import 'package:ledger_master/core/utils/responsive.dart';
+import 'package:ledger_master/features/automation/automation_screen.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
+import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/features/inventory/inventory_repository.dart';
 import 'package:ledger_master/features/sales_invoicing/invoice_generator.dart';
 import 'package:ledger_master/main.dart';
+import 'package:ledger_master/shared/components/constants.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
@@ -27,6 +30,7 @@ class LedgerHome extends StatelessWidget {
     final ledgerController = Get.find<LedgerController>();
     final isDesktop = MediaQuery.of(context).size.width > 800;
     final customerController = Get.find<CustomerController>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     Widget buildHighlightedText(String text, String query) {
       if (query.isEmpty) {
@@ -52,9 +56,14 @@ class LedgerHome extends StatelessWidget {
           TextSpan(
             text: text.substring(match.start, match.end),
             style: TextStyle(
-              backgroundColor: Theme.of(
-                context,
-              ).colorScheme.secondary.withValues(alpha: 0.3),
+              backgroundColor: isDark
+                  ? Theme.of(
+                      context,
+                    ).colorScheme.secondary.withValues(alpha: 0.3)
+                  : const Color(
+                      0xFFFFF59D,
+                    ), // Soft yellow highlight for light theme
+              fontWeight: FontWeight.w600,
             ),
           ),
         );
@@ -101,20 +110,18 @@ class LedgerHome extends StatelessWidget {
                           return TextField(
                             controller: controller,
                             focusNode: focusNode,
-                            style: Theme.of(context).textTheme.bodySmall!,
+                            style: Theme.of(context).textTheme.bodyMedium,
                             decoration: InputDecoration(
                               hintText:
                                   'Search by ledger no, account, type, date, tags...',
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              hintStyle: Theme.of(context).textTheme.bodySmall!,
-                              labelStyle: Theme.of(
-                                context,
-                              ).textTheme.bodySmall!,
                               prefixIcon: Icon(
                                 Icons.search,
-                                color: Theme.of(context).colorScheme.onSurface,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
                               ),
                               suffixIcon:
                                   ValueListenableBuilder<TextEditingValue>(
@@ -126,7 +133,7 @@ class LedgerHome extends StatelessWidget {
                                               Icons.clear,
                                               color: Theme.of(
                                                 context,
-                                              ).colorScheme.onSurface,
+                                              ).colorScheme.onSurfaceVariant,
                                             ),
                                             onPressed: () {
                                               controller.clear();
@@ -159,10 +166,11 @@ class LedgerHome extends StatelessWidget {
                       ? Center(
                           child: Text(
                             'No ledger entries found.',
-                            style: Theme.of(context).textTheme.bodySmall!
+                            style: Theme.of(context).textTheme.bodyMedium!
                                 .copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface
-                                      .withValues(alpha: 0.8),
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                                 ),
                           ),
                         )
@@ -177,144 +185,201 @@ class LedgerHome extends StatelessWidget {
                                     : 2,
                                 crossAxisSpacing: 16,
                                 mainAxisSpacing: 16,
-                                childAspectRatio: 3.5 / 2,
+                                childAspectRatio: isDesktop ? 1.6 : 1.4,
                               ),
                           itemCount: ledgerController.filteredLedgers.length,
                           itemBuilder: (context, index) {
                             final ledger =
                                 ledgerController.filteredLedgers[index];
                             return Card(
-                              color: Colors.white30,
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                  12,
-                                ), // 👈 rounded corners here
-                                side: const BorderSide(
-                                  color: Colors.grey,
-                                ), // optional border
-                              ),
+                              elevation: isDark ? 4 : 0,
                               child: InkWell(
                                 onTap: () => NavigationHelper.push(
                                   context,
                                   LedgerTablePage(ledger: ledger),
                                 ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: Column(
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
+                                borderRadius: BorderRadius.circular(12),
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    return SingleChildScrollView(
+                                      padding: const EdgeInsets.all(12.0),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Icon(
-                                            Icons.table_chart,
-                                            color: Colors.white,
-                                            size: 30,
-                                          ), // darker for contrast
-                                          Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              buildHighlightedText(
-                                                'Ledger No: ${ledger.ledgerNo}',
-                                                ledgerController
-                                                    .searchQuery
-                                                    .value,
-                                              ),
-                                              buildHighlightedText(
-                                                'Created: ${DateFormat('dd-MM-yyyy').format(ledger.createdAt)} by ${ledger.createdBy ?? "Unknown"}',
-                                                ledgerController
-                                                    .searchQuery
-                                                    .value,
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                      Spacer(),
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              buildHighlightedText(
-                                                'Account: ${ledger.accountName}',
-                                                ledgerController
-                                                    .searchQuery
-                                                    .value,
-                                              ),
-                                              buildHighlightedText(
-                                                'Type: ${ledger.transactionType}',
-                                                ledgerController
-                                                    .searchQuery
-                                                    .value,
-                                              ),
-                                              buildHighlightedText(
-                                                'Debit: ${NumberFormat('#,##0.00').format(ledger.debit)} ',
-                                                ledgerController
-                                                    .searchQuery
-                                                    .value,
-                                              ),
-                                              buildHighlightedText(
-                                                'Credit: ${NumberFormat('#,##0.00').format(ledger.credit)}',
-                                                ledgerController
-                                                    .searchQuery
-                                                    .value,
-                                              ),
-                                              if (ledger.description != null)
-                                                buildHighlightedText(
-                                                  'Description: ${ledger.description}',
-                                                  ledgerController
-                                                      .searchQuery
-                                                      .value,
-                                                ),
-                                            ],
-                                          ),
                                           Row(
                                             children: [
-                                              IconButton(
-                                                icon: const Icon(
-                                                  Icons.edit,
-                                                  size: 16,
+                                              Container(
+                                                padding: const EdgeInsets.all(
+                                                  8,
                                                 ),
-                                                onPressed: () async {
-                                                  await ledgerController
-                                                      .loadLedgerNo(
-                                                        ledger: ledger,
-                                                      );
-                                                  if (context.mounted) {
-                                                    NavigationHelper.push(
-                                                      context,
-                                                      LedgerAddEdit(
-                                                        ledger: ledger,
-                                                      ),
-                                                    );
-                                                    await ledgerController
-                                                        .fetchLedgers();
-                                                  }
-                                                },
+                                                decoration: BoxDecoration(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .primaryContainer,
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: Icon(
+                                                  Icons.table_chart,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onPrimaryContainer,
+                                                  size: 20,
+                                                ),
                                               ),
-                                              IconButton(
-                                                icon: const Icon(
-                                                  Icons.delete,
-                                                  size: 16,
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    buildHighlightedText(
+                                                      'Ledger No: ${ledger.ledgerNo}',
+                                                      ledgerController
+                                                          .searchQuery
+                                                          .value,
+                                                    ),
+                                                    const SizedBox(height: 2),
+                                                    buildHighlightedText(
+                                                      'Created: ${DateFormat('dd-MM-yyyy').format(ledger.createdAt)}',
+                                                      ledgerController
+                                                          .searchQuery
+                                                          .value,
+                                                    ),
+                                                  ],
                                                 ),
-                                                onPressed: () =>
-                                                    ledgerController
-                                                        .deleteLedger(
-                                                          ledger.id!,
-                                                        ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Divider(
+                                            height: 8,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.outlineVariant,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.end,
+                                            children: [
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    buildHighlightedText(
+                                                      'Account: ${ledger.accountName}',
+                                                      ledgerController
+                                                          .searchQuery
+                                                          .value,
+                                                    ),
+                                                    const SizedBox(height: 3),
+                                                    buildHighlightedText(
+                                                      'Type: ${ledger.transactionType}',
+                                                      ledgerController
+                                                          .searchQuery
+                                                          .value,
+                                                    ),
+                                                    const SizedBox(height: 3),
+                                                    FutureBuilder(
+                                                      future: CustomerRepository()
+                                                          .getOpeningBalanceForCustomer(
+                                                            ledger.accountName,
+                                                          ),
+                                                      builder: (context, snapshot) {
+                                                        if (snapshot
+                                                                .connectionState ==
+                                                            ConnectionState
+                                                                .waiting) {
+                                                          return const SizedBox(
+                                                            height: 16,
+                                                            width: 16,
+                                                          );
+                                                        }
+                                                        return buildHighlightedText(
+                                                          snapshot.data != 0 ||
+                                                                  snapshot.data !=
+                                                                      0.0
+                                                              ? "Opening Bal: ${NumberFormat('#,##0.00').format(snapshot.data)}"
+                                                              : 'Debit: ${NumberFormat('#,##0.00').format(ledger.debit)}',
+                                                          ledgerController
+                                                              .searchQuery
+                                                              .value,
+                                                        );
+                                                      },
+                                                    ),
+                                                    const SizedBox(height: 3),
+                                                    buildHighlightedText(
+                                                      'Credit: ${NumberFormat('#,##0.00').format(ledger.credit)}',
+                                                      ledgerController
+                                                          .searchQuery
+                                                          .value,
+                                                    ),
+                                                    if (ledger.description !=
+                                                        null) ...[
+                                                      const SizedBox(height: 3),
+                                                      buildHighlightedText(
+                                                        'Desc: ${ledger.description}',
+                                                        ledgerController
+                                                            .searchQuery
+                                                            .value,
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  deleteButton(
+                                                    context: context,
+                                                    onPressed: () {
+                                                      confirmDeleteDialog(
+                                                        onConfirm: () {
+                                                          ledgerController
+                                                              .deleteLedger(
+                                                                ledger.id!,
+                                                              );
+                                                        },
+                                                        context: context,
+                                                      );
+                                                    },
+                                                  ),
+                                                  editButton(
+                                                    context: context,
+                                                    onPressed: () async {
+                                                      await ledgerController
+                                                          .loadLedgerNo(
+                                                            ledger: ledger,
+                                                          );
+                                                      if (context.mounted) {
+                                                        NavigationHelper.push(
+                                                          context,
+                                                          LedgerAddEdit(
+                                                            ledger: ledger,
+                                                          ),
+                                                        );
+                                                        await ledgerController
+                                                            .fetchLedgers();
+                                                      }
+                                                    },
+                                                  ),
+                                                ],
                                               ),
                                             ],
                                           ),
                                         ],
                                       ),
-                                    ],
-                                  ),
+                                    );
+                                  },
                                 ),
                               ),
                             );
@@ -324,8 +389,8 @@ class LedgerHome extends StatelessWidget {
               ],
             ),
             Positioned(
-              bottom: 8,
-              right: 8,
+              bottom: 16,
+              right: 16,
               child: FloatingActionButton(
                 heroTag: 'ledger-fab',
                 onPressed: () async {
@@ -334,14 +399,13 @@ class LedgerHome extends StatelessWidget {
                       SnackBar(
                         content: Text(
                           'Please add customers/vendors first.',
-                          style: Theme.of(context).textTheme.bodySmall!
+                          style: Theme.of(context).textTheme.bodyMedium!
                               .copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.8),
+                                color: Theme.of(context).colorScheme.onError,
                               ),
                         ),
-                        backgroundColor: Colors.red,
+                        backgroundColor: Theme.of(context).colorScheme.error,
+                        behavior: SnackBarBehavior.floating,
                       ),
                     );
                   } else {
@@ -398,16 +462,9 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
       controller: controller,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: Theme.of(context).textTheme.bodySmall!.copyWith(
-          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
-        ),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        errorStyle: TextStyle(
-          color: Colors.red[900],
-          fontSize: Theme.of(context).textTheme.bodySmall!.fontSize,
-        ),
       ),
-      style: Theme.of(context).textTheme.bodySmall,
+      style: Theme.of(context).textTheme.bodyMedium,
       keyboardType: keyboardType,
       validator: validator,
       readOnly: readOnly,
@@ -425,6 +482,7 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width > 800;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Obx(
       () => BaseLayout(
@@ -442,43 +500,29 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
                 children: [
                   Text(
                     'Ledger Details',
-                    style: Theme.of(context).textTheme.displayLarge!.copyWith(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.8),
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 16),
                   Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                    elevation: isDark ? 4 : 0,
                     child: Container(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        gradient: LinearGradient(
-                          colors: [
-                            Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: 0.2),
-                            (Theme.of(context).cardTheme.color ??
-                                    Theme.of(context).colorScheme.surface)
-                                .withValues(alpha: 1),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.2),
-                            blurRadius: 8,
-                            offset: const Offset(2, 2),
-                          ),
-                        ],
+                        borderRadius: BorderRadius.circular(12),
+                        gradient: isDark
+                            ? LinearGradient(
+                                colors: [
+                                  Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.2),
+                                  Theme.of(context).colorScheme.surface,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              )
+                            : null,
                       ),
                       child: isDesktop
                           ? buildDesktopLayout()
@@ -486,46 +530,76 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () {
-                          controller.clearForm();
-                          NavigationHelper.pop(context);
-                        },
-                        child: Text(
-                          'Cancel',
-                          style: Theme.of(context).textTheme.bodySmall!
-                              .copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.8),
-                              ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      ElevatedButton(
-                        onPressed: () => controller.saveLedger(
-                          context,
-                          ledger: widget.ledger,
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primary,
-                          foregroundColor: Theme.of(context).iconTheme.color,
-                          shape: RoundedRectangleBorder(
+                  controller.isLedgerExists.value
+                      ? Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.errorContainer,
                             borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.error,
+                              width: 1,
+                            ),
                           ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.warning_rounded,
+                                color: Theme.of(context).colorScheme.error,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'A ledger already exists for ${controller.accountNameController.text}. Please choose a different name or check your existing ledgers to avoid duplication.',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onErrorContainer,
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () {
+                                controller.clearForm();
+                                NavigationHelper.pop(context);
+                              },
+                              child: Text(
+                                'Cancel',
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            ElevatedButton(
+                              onPressed: () => controller.saveLedger(
+                                context,
+                                ledger: widget.ledger,
+                              ),
+                              child: Text(
+                                'Save',
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onPrimary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ),
+                          ],
                         ),
-                        child: Text(
-                          'Save',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
@@ -556,14 +630,10 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
                 );
                 return DropdownButtonFormField<Customer>(
                   initialValue: selected,
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  dropdownColor: Theme.of(context).colorScheme.surface,
                   decoration: InputDecoration(
                     labelText: 'Account Name',
-                    labelStyle: Theme.of(context).textTheme.bodySmall!.copyWith(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.8),
-                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -576,17 +646,26 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
                       .map(
                         (cust) => DropdownMenuItem<Customer>(
                           value: cust,
-                          child: Text(cust.name),
+                          child: Text(
+                            cust.name,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
                         ),
                       )
                       .toList(),
-                  onChanged: (cust) {
+                  onChanged: (cust) async {
                     if (cust != null) {
+                      final balance = await CustomerRepository()
+                          .getOpeningBalanceForCustomer(cust.name);
+
                       controller.accountNameController.text = cust.name;
                       controller.accountIdController.text =
                           cust.id?.toString() ?? '';
                       controller.debitController.text = '0.00';
-                      controller.creditController.text = '0.00';
+                      controller.creditController.text = balance.toString();
+                      controller.balanceController.text = balance.toString();
+                      controller.isLedgerExists.value = await controller.repo
+                          .ledgerExistsForCustomer(cust.name);
                     }
                   },
                   validator: (value) {
@@ -624,21 +703,23 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
             Expanded(
               child: DropdownButtonFormField<String>(
                 initialValue: controller.transactionType.value,
-                style: Theme.of(context).textTheme.bodySmall,
+                style: Theme.of(context).textTheme.bodyMedium,
+                dropdownColor: Theme.of(context).colorScheme.surface,
                 decoration: InputDecoration(
                   labelText: 'Transaction Type',
-                  labelStyle: Theme.of(context).textTheme.bodySmall!.copyWith(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.8),
-                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                items: const ['Debit', 'Credit']
+                items: ['Debit', 'Credit']
                     .map(
-                      (t) => DropdownMenuItem<String>(value: t, child: Text(t)),
+                      (t) => DropdownMenuItem<String>(
+                        value: t,
+                        child: Text(
+                          t,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
                     )
                     .toList(),
                 onChanged: (value) {
@@ -717,16 +798,17 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    labelStyle: Theme.of(context).textTheme.bodySmall!.copyWith(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.8),
+                    suffixIcon: Icon(
+                      Icons.calendar_today,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 20,
                     ),
                   ),
                   child: Text(
                     DateFormat(
                       'dd-MM-yyyy',
                     ).format(controller.selectedDate.value),
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
               ),
@@ -799,17 +881,23 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
             Expanded(
               child: DropdownButtonFormField<String>(
                 initialValue: controller.status.value,
-                style: Theme.of(context).textTheme.bodySmall,
+                style: Theme.of(context).textTheme.bodyMedium,
+                dropdownColor: Theme.of(context).colorScheme.surface,
                 decoration: InputDecoration(
                   labelText: 'Status',
-                  labelStyle: Theme.of(context).textTheme.bodySmall,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                items: const ['Debit', 'Credit']
+                items: ['Debit', 'Credit']
                     .map(
-                      (s) => DropdownMenuItem<String>(value: s, child: Text(s)),
+                      (s) => DropdownMenuItem<String>(
+                        value: s,
+                        child: Text(
+                          s,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
                     )
                     .toList(),
                 onChanged: null,
@@ -863,7 +951,8 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
           );
           return DropdownButtonFormField<Customer>(
             initialValue: selected,
-            style: Theme.of(context).textTheme.bodySmall,
+            style: Theme.of(context).textTheme.bodyMedium,
+            dropdownColor: Theme.of(context).colorScheme.surface,
             decoration: InputDecoration(
               labelText: 'Account Name',
               border: OutlineInputBorder(
@@ -876,16 +965,25 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
                 .map(
                   (cust) => DropdownMenuItem<Customer>(
                     value: cust,
-                    child: Text(cust.name),
+                    child: Text(
+                      cust.name,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
                   ),
                 )
                 .toList(),
-            onChanged: (cust) {
+            onChanged: (cust) async {
               if (cust != null) {
+                final balance = await CustomerRepository()
+                    .getOpeningBalanceForCustomer(cust.name);
+
                 controller.accountNameController.text = cust.name;
                 controller.accountIdController.text = cust.id?.toString() ?? '';
                 controller.debitController.text = '0.00';
-                controller.creditController.text = '0.00';
+                controller.creditController.text = balance.toString();
+                controller.balanceController.text = balance.toString();
+                controller.isLedgerExists.value = await controller.repo
+                    .ledgerExistsForCustomer(cust.name);
               }
             },
             validator: (value) {
@@ -904,13 +1002,19 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           initialValue: controller.transactionType.value,
-          style: Theme.of(context).textTheme.bodySmall,
+          style: Theme.of(context).textTheme.bodyMedium,
+          dropdownColor: Theme.of(context).colorScheme.surface,
           decoration: InputDecoration(
             labelText: 'Transaction Type',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
-          items: const ['Debit', 'Credit']
-              .map((t) => DropdownMenuItem<String>(value: t, child: Text(t)))
+          items: ['Debit', 'Credit']
+              .map(
+                (t) => DropdownMenuItem<String>(
+                  value: t,
+                  child: Text(t, style: Theme.of(context).textTheme.bodyMedium),
+                ),
+              )
               .toList(),
           onChanged: (value) {
             controller.transactionType.value = value;
@@ -950,9 +1054,15 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
+              suffixIcon: Icon(
+                Icons.calendar_today,
+                color: Theme.of(context).colorScheme.primary,
+                size: 20,
+              ),
             ),
             child: Text(
               DateFormat('dd-MM-yyyy').format(controller.selectedDate.value),
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
         ),
@@ -990,13 +1100,19 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           initialValue: controller.status.value,
-          style: Theme.of(context).textTheme.bodySmall,
+          style: Theme.of(context).textTheme.bodyMedium,
+          dropdownColor: Theme.of(context).colorScheme.surface,
           decoration: InputDecoration(
             labelText: 'Status',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
-          items: const ['Debit', 'Credit']
-              .map((s) => DropdownMenuItem<String>(value: s, child: Text(s)))
+          items: ['Debit', 'Credit']
+              .map(
+                (s) => DropdownMenuItem<String>(
+                  value: s,
+                  child: Text(s, style: Theme.of(context).textTheme.bodyMedium),
+                ),
+              )
               .toList(),
           onChanged: null,
           validator: (value) {
@@ -1027,13 +1143,18 @@ class LedgerTablePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<LedgerTableController>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     // Create the column sizer using current entries (recreated whenever entries change)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      controller.loadLedgerEntries(ledger.ledgerNo).then((value) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await controller.fetchOpeningBalanceIfNeeded(ledger.accountName);
+      await controller.loadLedgerEntries(ledger.ledgerNo).then((value) {
         if (controller.filteredLedgerEntries.isNotEmpty) {
           final lastIndex = controller.filteredLedgerEntries.length - 1;
-          Future.delayed(Duration(milliseconds: 500), () {
-            controller.dataGridController.scrollToRow(lastIndex.toDouble());
+          Future.delayed(Duration(milliseconds: 500), () async {
+            await controller.dataGridController.scrollToRow(
+              lastIndex.toDouble(),
+            );
           });
         }
       });
@@ -1078,15 +1199,16 @@ class LedgerTablePage extends StatelessWidget {
                         controller: controller.searchController,
                         onChanged: (value) =>
                             controller.searchQuery.value = value,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(color: Colors.white),
+                        style: Theme.of(context).textTheme.bodyMedium,
                         decoration: InputDecoration(
                           labelText: "Search by Voucher No, Date or Ref No",
-                          prefixIcon: Icon(Icons.search),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                           border: OutlineInputBorder(),
-                          hintStyle: Theme.of(context).textTheme.bodySmall,
-                          labelStyle: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
                     ),
@@ -1097,14 +1219,10 @@ class LedgerTablePage extends StatelessWidget {
                     child: TextFormField(
                       initialValue: ledger.accountName,
                       readOnly: true,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.white),
+                      style: Theme.of(context).textTheme.bodyMedium,
                       decoration: InputDecoration(
                         labelText: "Ledger Name",
                         border: OutlineInputBorder(),
-                        hintStyle: Theme.of(context).textTheme.bodySmall,
-                        labelStyle: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
                   ),
@@ -1113,13 +1231,29 @@ class LedgerTablePage extends StatelessWidget {
                     flex: 1,
                     child: DropdownButtonFormField<String>(
                       initialValue: controller.selectedTransactionType.value,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      items: const [
-                        DropdownMenuItem(value: null, child: Text("All Types")),
-                        DropdownMenuItem(value: "Debit", child: Text("Debit")),
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      dropdownColor: Theme.of(context).colorScheme.surface,
+                      items: [
+                        DropdownMenuItem(
+                          value: null,
+                          child: Text(
+                            "All Types",
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: "Debit",
+                          child: Text(
+                            "Debit",
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
                         DropdownMenuItem(
                           value: "Credit",
-                          child: Text("Credit"),
+                          child: Text(
+                            "Credit",
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
                         ),
                       ],
                       onChanged: (value) {
@@ -1128,8 +1262,6 @@ class LedgerTablePage extends StatelessWidget {
                       decoration: InputDecoration(
                         labelText: "Transaction Type",
                         border: OutlineInputBorder(),
-                        hintStyle: Theme.of(context).textTheme.bodySmall,
-                        labelStyle: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
                   ),
@@ -1139,16 +1271,15 @@ class LedgerTablePage extends StatelessWidget {
                     child: TextFormField(
                       controller: controller.fromDateController,
                       readOnly: true,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.white),
+                      style: Theme.of(context).textTheme.bodyMedium,
                       decoration: InputDecoration(
                         labelText: "From Date",
                         border: const OutlineInputBorder(),
-                        hintStyle: Theme.of(context).textTheme.bodySmall,
-                        labelStyle: Theme.of(context).textTheme.bodySmall,
                         suffixIcon: IconButton(
-                          icon: const Icon(Icons.calendar_today),
+                          icon: Icon(
+                            Icons.calendar_today,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                           onPressed: () => controller.selectDate(context, true),
                         ),
                       ),
@@ -1160,17 +1291,16 @@ class LedgerTablePage extends StatelessWidget {
                     flex: 1,
                     child: TextFormField(
                       controller: controller.toDateController,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.white),
+                      style: Theme.of(context).textTheme.bodyMedium,
                       readOnly: true,
                       decoration: InputDecoration(
-                        hintStyle: Theme.of(context).textTheme.bodySmall,
-                        labelStyle: Theme.of(context).textTheme.bodySmall,
                         labelText: "To Date",
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
-                          icon: const Icon(Icons.calendar_today),
+                          icon: Icon(
+                            Icons.calendar_today,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                           onPressed: () =>
                               controller.selectDate(context, false),
                         ),
@@ -1204,7 +1334,11 @@ class LedgerTablePage extends StatelessWidget {
             // Ledger Entries Table
             controller.isLoading.value
                 ? Expanded(
-                    child: const Center(child: CircularProgressIndicator()),
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
                   )
                 : Expanded(
                     child: SfDataGrid(
@@ -1229,6 +1363,16 @@ class LedgerTablePage extends StatelessWidget {
                         controller.columnWidths[colName] = details.width;
                         return true; // allow the change
                       },
+                      onCellTap: (DataGridCellTapDetails details) {
+                        if (details.rowColumnIndex.rowIndex > 0) {
+                          final entry =
+                              controller.filteredLedgerEntries[details
+                                      .rowColumnIndex
+                                      .rowIndex -
+                                  1];
+                          showLedgerEntryDialog(context, entry);
+                        }
+                      },
 
                       // optional: persist width after resize ends (not strictly necessary)
                       onColumnResizeEnd: (ColumnResizeEndDetails details) {
@@ -1238,7 +1382,12 @@ class LedgerTablePage extends StatelessWidget {
                       placeholder: Center(
                         child: Text(
                           "No data available",
-                          style: Theme.of(context).textTheme.bodyLarge,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                         ),
                       ),
                       columns: [
@@ -1318,12 +1467,28 @@ class LedgerTablePage extends StatelessWidget {
                   ),
             // Totals row
             Container(
-              alignment: Alignment.centerRight,
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Theme.of(context).colorScheme.surfaceContainerHighest
+                    : Theme.of(context).colorScheme.surfaceContainerHigh,
+                border: Border(
+                  top: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    width: 1,
+                  ),
+                ),
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   totalBox("Total Debit", controller.totalDebit, context),
+                  const SizedBox(width: 16),
+                  totalBox(
+                    "Opening Balance",
+                    controller.openingBalance,
+                    context,
+                  ),
                   const SizedBox(width: 16),
                   totalBox("Net Balance", controller.netBalance, context),
                 ],
@@ -1336,17 +1501,26 @@ class LedgerTablePage extends StatelessWidget {
   }
 
   Widget totalBox(String label, double value, BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+        color: isDark
+            ? Theme.of(context).colorScheme.surface
+            : Theme.of(context).colorScheme.primaryContainer,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+          width: 1,
+        ),
       ),
       child: Text(
         "$label: ${NumberFormat('#,##0.00', 'en_US').format(value)}",
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: isDark
+              ? Theme.of(context).colorScheme.onSurface
+              : Theme.of(context).colorScheme.onPrimaryContainer,
         ),
       ),
     );
@@ -1354,9 +1528,12 @@ class LedgerTablePage extends StatelessWidget {
 
   Widget headerText(String text, context) => Container(
     alignment: Alignment.center,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-      child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+    child: Text(
+      text,
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+        fontWeight: FontWeight.w600,
+        color: Theme.of(context).colorScheme.onSurface,
+      ),
     ),
   );
 
@@ -1476,9 +1653,18 @@ class LedgerTablePage extends StatelessWidget {
       ledger.ledgerNo,
     );
     if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Entry deleted')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Entry deleted',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onError,
+            ),
+          ),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
     controller.loadLedgerEntries(ledger.ledgerNo);
   }
@@ -1548,7 +1734,6 @@ class LedgerEntryDataSource extends DataGridSource {
         final cell = cellEntry.value;
         final isLastCell = cellEntry.key == row.getCells().length - 1;
         // final rowIndex = _rows.length - 1 - _rows.indexOf(row);
-        final rowIndex = _rows.indexOf(row);
         if (isLastCell) {
           return StatefulBuilder(
             builder: (context, setState) {
@@ -1567,50 +1752,91 @@ class LedgerEntryDataSource extends DataGridSource {
                             '#,##0.00',
                             'en_US',
                           ).format(cell.value.balance ?? 0),
-                          style: Theme.of(context).textTheme.bodySmall!
-                              .copyWith(fontWeight: FontWeight.w500),
+                          style: Theme.of(context).textTheme.bodyMedium!
+                              .copyWith(
+                                fontWeight: FontWeight.w500,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
                           textAlign: TextAlign.center,
                         ),
                       ),
                     ),
                     if (isHovered)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Tooltip(
-                            message: "print",
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () => onPrint(entry, rowIndex),
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 4.0),
-                                child: const Icon(Icons.print, size: 16),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surface.withValues(alpha: 0.95),
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.shadow.withValues(alpha: 0.1),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Tooltip(
+                            //   message: "print",
+                            //   child: InkWell(
+                            //     borderRadius: BorderRadius.circular(14),
+                            //     onTap: () => onPrint(entry, rowIndex),
+                            //     child: Padding(
+                            //       padding: const EdgeInsets.only(right: 4.0),
+                            //       child: Icon(
+                            //         Icons.print_outlined,
+                            //         size: 16,
+                            //         color: Theme.of(context).colorScheme.primary,
+                            //       ),
+                            //     ),
+                            //   ),
+                            // ),
+                            Tooltip(
+                              message: "delete",
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () => confirmDeleteDialog(
+                                  onConfirm: () => onDelete(entry),
+                                  context: context,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 4.0),
+                                  child: Icon(
+                                    Icons.delete_outline,
+                                    size: 16,
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                          Tooltip(
-                            message: "delete",
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () => onDelete(entry),
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 4.0),
-                                child: const Icon(Icons.delete, size: 16),
+                            Tooltip(
+                              message: "edit",
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () => onEdit(entry),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 4.0),
+                                  child: Icon(
+                                    Icons.edit_outlined,
+                                    size: 16,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                          Tooltip(
-                            message: "edit",
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () => onEdit(entry),
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 4.0),
-                                child: const Icon(Icons.edit, size: 16),
-                              ),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                   ],
                 ),
@@ -1628,11 +1854,12 @@ class LedgerEntryDataSource extends DataGridSource {
                   ? NumberFormat('#,##0.00', 'en_US').format(cell.value ?? 0)
                   : cell.value.toString(),
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall!.copyWith(
+              style: Theme.of(context).textTheme.bodyMedium!.copyWith(
                 fontWeight:
                     cell.columnName == 'debit' || cell.columnName == 'credit'
                     ? FontWeight.w500
-                    : null,
+                    : FontWeight.w400,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           ),
@@ -1659,7 +1886,8 @@ class LedgerTableController extends GetxController {
   final toDate = Rx<DateTime>(DateTime.now());
   final filteredLedgerEntries = <LedgerEntry>[].obs;
   final RxMap<String, double> columnWidths = <String, double>{}.obs;
-
+  final CustomerRepository repo = CustomerRepository();
+  var openingBalance = 0.0; // 👈 cache value for sync access
   // optional helper to set a default width only if not already set
   void ensureColumnWidth(String columnName, double width) {
     if (!columnWidths.containsKey(columnName)) {
@@ -1799,12 +2027,14 @@ class LedgerTableController extends GetxController {
 
     if (picked != null) {
       if (isFromDate) {
-        fromDate.value = picked;
         fromDateController.text = DateFormat('dd-MM-yyyy').format(picked);
+        fromDate.value = picked; // ✅ This triggers the ever() listener
       } else {
-        toDate.value = picked;
         toDateController.text = DateFormat('dd-MM-yyyy').format(picked);
+        toDate.value = picked; // ✅ This triggers the ever() listener
       }
+      // ✅ Force immediate filter update
+      _applyFilters();
     }
   }
 
@@ -1876,25 +2106,32 @@ class LedgerTableController extends GetxController {
     }
   }
 
+  Future<void> fetchOpeningBalanceIfNeeded(String accountName) async {
+    try {
+      final result = await repo.getOpeningBalanceForCustomer(accountName);
+      openingBalance = result;
+      update(); // refresh UI if using GetBuilder
+    } catch (e) {
+      openingBalance = 0.0;
+    }
+  }
+
   double get totalDebit {
     return filteredLedgerEntries.fold(0.0, (sum, entry) => sum + entry.debit);
   }
 
   double get totalCredit {
     return filteredLedgerEntries.fold(0.0, (sum, entry) => sum + entry.credit);
+    // No fallback to opening—it's sum of credits only
   }
 
   double get netBalance {
-    if (filteredLedgerEntries.isEmpty) return 0.0;
-
-    // ALTERNATIVE FIX: Calculate net balance from the original entries
-    // Find the most recent entry in the original (chronologically sorted) list
     final allEntries = ledgerController.ledgerEntries;
-    if (allEntries.isEmpty) return 0.0;
-
-    // Sort by date descending to get the most recent entry
-    allEntries.sort((a, b) => b.date.compareTo(a.date));
-    return allEntries.first.balance;
+    if (allEntries.isEmpty) {
+      return 0.0; // Return 0.0 when no entries exist
+    }
+    allEntries.sort((a, b) => b.date.compareTo(a.date)); // Latest first
+    return allEntries.first.balance + openingBalance;
   }
 
   double get balanceCans {
@@ -1952,6 +2189,7 @@ class LedgerTableController extends GetxController {
 class LedgerController extends GetxController {
   final LedgerRepository repo;
   final InventoryRepository inventoryRepo = InventoryRepository();
+  final automationController = Get.put(AutomationController());
   final ledgers = <Ledger>[].obs;
   final filteredLedgers = <Ledger>[].obs;
   final ledgerEntries = <LedgerEntry>[].obs;
@@ -1960,8 +2198,9 @@ class LedgerController extends GetxController {
   final Map<String, int> _nextVoucherNums = <String, int>{};
   String? _sharedVoucherNo;
   final formKey = GlobalKey<FormState>();
+  RxBool isLedgerExists = false.obs;
 
-  // Ledger Form controllers (unchanged)
+  // Ledger Form controllers
   final ledgerNoController = TextEditingController();
   final voucherNoController = TextEditingController();
   final accountNameController = TextEditingController();
@@ -1977,12 +2216,43 @@ class LedgerController extends GetxController {
   final createdByController = TextEditingController();
   final statusController = TextEditingController();
 
+  // New cheque field controllers
+  final chequeNoController = TextEditingController();
+  final chequeAmountController = TextEditingController();
+  final chequeDateController = TextEditingController();
+  final bankNameController = TextEditingController();
+
   final selectedDate = DateTime.now().obs;
   final transactionType = RxnString();
   final status = RxnString();
   final searchQuery = ''.obs;
   final recentSearches = <String>[].obs;
   final availableItems = <Item>[].obs;
+
+  // Bank list for dropdown
+  final List<String> bankList = [
+    'Habib Bank Limited (HBL)',
+    'United Bank Limited (UBL)',
+    'MCB Bank Limited',
+    'Allied Bank Limited (ABL)',
+    'National Bank of Pakistan (NBP)',
+    'Bank Alfalah',
+    'Meezan Bank',
+    'Faysal Bank',
+    'Askari Bank',
+    'Standard Chartered Bank (Pakistan)',
+    'Bank of Punjab (BOP)',
+    'Bank of Khyber',
+    'Sindh Bank',
+    'Habib Metropolitan Bank',
+    'JS Bank',
+    'Summit Bank',
+    'First Women Bank Limited',
+    'Dubai Islamic Bank Pakistan',
+    'Samba Bank',
+    'Soneri Bank',
+    'Silk Bank',
+  ];
 
   LedgerController(this.repo);
 
@@ -1991,6 +2261,24 @@ class LedgerController extends GetxController {
   RxDouble totalSales = 0.0.obs;
   RxDouble totalReceivables = 0.0.obs;
   RxList<Item> lowStockItems = <Item>[].obs;
+  RxList<Map<String, dynamic>> expenseBreakdown = <Map<String, dynamic>>[].obs;
+  RxList<Map<String, dynamic>> salesTrendLast6Months =
+      <Map<String, dynamic>>[].obs;
+  RxMap<String, double> expenses = <String, double>{}.obs;
+  final List<String> monthShortNames = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
 
   @override
   void onInit() {
@@ -1999,37 +2287,50 @@ class LedgerController extends GetxController {
     fetchLedgers();
     loadRecentSearches();
     fetchItems();
-
     ever<String>(searchQuery, (_) => filterLedgers());
     ever<List<Ledger>>(ledgers, (_) => filterLedgers());
     creditController.addListener(_onAmountOrAccountChanged);
     debitController.addListener(_onAmountOrAccountChanged);
     accountIdController.addListener(_onAmountOrAccountChanged);
-    // Get total sales
+  }
+
+  // Add this method to clear cheque fields when switching to cash
+  void clearChequeFields() {
+    chequeNoController.clear();
+    chequeAmountController.clear();
+    chequeDateController.clear();
+    bankNameController.clear();
+  }
+
+  // Add this method to clear cash fields when switching to cheque
+  void clearCashFields() {
+    // Add any cash-specific fields here if needed in future
   }
 
   Future<void> getStats() async {
     totalSales.value = await DBHelper().getTotalSales();
-
-    // Get total receivables
     totalReceivables.value = await DBHelper().getTotalReceivables();
-
-    // Get low stock items
     lowStockItems.value = await DBHelper().getTopThreeLowestStockItems();
+    expenses.value = await DBHelper().getExpenseTotals();
+    expenseBreakdown.value = await DBHelper().fetchExpenseBreakdown();
+    salesTrendLast6Months.value = await DBHelper().fetchSalesTrendBetweenMonths(
+      automationController.formattedFromMonth,
+      automationController.formattedToMonth,
+    );
   }
 
   Future<void> refreshItems() async {
     await fetchItems();
-    update(); // Notify listeners
+    update();
   }
 
   Future<void> addNewEntryForm(String ledgerNo) async {
-    await fetchItems(); // Ensure items are loaded before creating the form
-
+    await fetchItems();
     final parentLedger = ledgers.firstWhere(
       (l) => l.ledgerNo == ledgerNo,
       orElse: () => throw Exception('Ledger with number $ledgerNo not found'),
     );
+
     final newForm = EntryFormData();
     newForm.ledgerNoController.text = ledgerNo;
     newForm.accountNameController.text = parentLedger.accountName;
@@ -2037,15 +2338,15 @@ class LedgerController extends GetxController {
     newForm.selectedDate.value = DateTime.now();
     newForm.originalEntry = null;
     newForm.currentStep.value = 0;
-    newForm.selectedItem.value = null; // Explicitly set to null
+    newForm.selectedItem.value = null;
+    newForm.paymentMethod.value = 'cash'; // Default to cash
 
-    // Ensure _sharedVoucherNo is set for all forms in the same session
     if (_sharedVoucherNo == null) {
       String voucherNo;
       if (_nextVoucherNums.containsKey(ledgerNo)) {
         final num = _nextVoucherNums[ledgerNo]!;
         voucherNo = 'VN${num.toString().padLeft(2, '0')}';
-        _nextVoucherNums[ledgerNo] = num + 1; // Increment for next session
+        _nextVoucherNums[ledgerNo] = num + 1;
       } else {
         final lastVoucherNo = await repo.getLastVoucherNo(ledgerNo);
         final regex = RegExp(r'VN(\d+)');
@@ -2056,28 +2357,26 @@ class LedgerController extends GetxController {
         }
         final num = maxNum + 1;
         voucherNo = 'VN${num.toString().padLeft(2, '0')}';
-        _nextVoucherNums[ledgerNo] =
-            num + 1; // Initialize and increment for next session
+        _nextVoucherNums[ledgerNo] = num + 1;
       }
-      _sharedVoucherNo = voucherNo; // Set the shared voucher number
+      _sharedVoucherNo = voucherNo;
     }
-    newForm.voucherNoController.text = _sharedVoucherNo!; // Safe to use now
 
+    newForm.voucherNoController.text = _sharedVoucherNo!;
     newForm.transactionType.value = "Debit";
     newForm.transactionTypeController.text = "Debit";
     newForm.status.value = "Debit";
     newForm.statusController.text = "Debit";
-
     await newForm._initPreviousBalance();
     entryForms.add(newForm);
 
-    // Add listeners for auto-negative sign
     newForm.creditController.addListener(
       () => _handleInputSign(
         newForm.creditController,
         newForm.transactionType.value == "Debit",
       ),
     );
+
     newForm.debitController.addListener(
       () => _handleInputSign(
         newForm.debitController,
@@ -2110,6 +2409,18 @@ class LedgerController extends GetxController {
     }
   }
 
+  Future<void> selectChequeDateForForm(BuildContext context, int index) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: entryForms[index].chequeDate.value ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) {
+      entryForms[index].chequeDate.value = picked;
+    }
+  }
+
   Future<void> fetchItems() async {
     final items = await inventoryRepo.getAllItems();
     availableItems.assignAll(items);
@@ -2120,46 +2431,36 @@ class LedgerController extends GetxController {
   }
 
   // ========== STOCK MANAGEMENT METHODS (WEIGHT-BASED) ==========
-
   Future<void> updateItemStock(
     Item item,
     double weightChange,
     String transactionType,
   ) async {
     try {
-      // Get the latest item data from database to ensure we have current stock
       final db = await DBHelper().database;
       final itemMap = await db.query(
         'item',
         where: 'id = ?',
         whereArgs: [item.id],
       );
-
       if (itemMap.isEmpty) throw Exception('Item not found');
-
       final currentItem = Item.fromMap(itemMap.first);
-
       final newStock = currentItem.availableStock + weightChange;
-
       if (newStock < 0) {
         throw Exception(
           'Insufficient stock for item ${item.name}. Available: ${currentItem.availableStock} kgs, Required: ${weightChange.abs()} kgs',
         );
       }
 
-      // Create stock transaction record
       final stockTx = StockTransaction(
         itemId: item.id!,
-        quantity: weightChange.abs(), // This should be double, not int
+        quantity: weightChange.abs(),
         type: transactionType,
         date: DateTime.now(),
       );
-
       await inventoryRepo.insertStockTransaction(stockTx);
-
       await fetchItems();
 
-      // Verify the update worked
       final verifyMap = await db.query(
         'item',
         where: 'id = ?',
@@ -2183,13 +2484,13 @@ class LedgerController extends GetxController {
         newEntry.canWeight == null) {
       return;
     }
+
     final item = availableItems.firstWhere(
       (item) => item.id == newEntry.itemId,
       orElse: () => throw Exception('Item not found in availableItems'),
     );
 
     final weightChange = -_calculateTotalWeight(newEntry);
-
     await updateItemStock(item, weightChange, 'OUT');
   }
 
@@ -2207,11 +2508,8 @@ class LedgerController extends GetxController {
         (item) => item.id == oldEntry.itemId,
         orElse: () => throw Exception('Item not found'),
       );
-
-      // Reverse the stock change from the old entry (add back)
       final oldWeight = _calculateTotalWeight(oldEntry);
       final reverseWeight = oldWeight;
-
       await updateItemStock(oldItem, reverseWeight, 'IN');
       return;
     }
@@ -2222,57 +2520,41 @@ class LedgerController extends GetxController {
         (item) => item.id == newEntry.itemId,
         orElse: () => throw Exception('Item not found'),
       );
-
-      // Apply stock change for the new item (decrease)
       final newWeight = _calculateTotalWeight(newEntry);
       final weightChange = -newWeight;
-
       await updateItemStock(newItem, weightChange, 'OUT');
       return;
     }
 
     // Case 3: Item was changed or quantity/weight was modified
     if (oldEntry.itemId != null && newEntry.itemId != null) {
-      // If item changed completely
       if (oldEntry.itemId != newEntry.itemId) {
-        // Reverse stock for old item (add back)
         final oldItem = availableItems.firstWhere(
           (item) => item.id == oldEntry.itemId,
           orElse: () => throw Exception('Item not found'),
         );
-
         final oldWeight = _calculateTotalWeight(oldEntry);
         final reverseWeight = oldWeight;
-
         await updateItemStock(oldItem, reverseWeight, 'IN');
 
-        // Apply stock for new item (decrease)
         final newItem = availableItems.firstWhere(
           (item) => item.id == newEntry.itemId,
           orElse: () => throw Exception('Item not found'),
         );
-
         final newWeight = _calculateTotalWeight(newEntry);
         final weightChange = -newWeight;
-
         await updateItemStock(newItem, weightChange, 'OUT');
-      }
-      // If same item but quantity or weight changed
-      else if (oldEntry.cansQuantity != newEntry.cansQuantity ||
+      } else if (oldEntry.cansQuantity != newEntry.cansQuantity ||
           oldEntry.canWeight != newEntry.canWeight) {
         final item = availableItems.firstWhere(
           (item) => item.id == newEntry.itemId,
           orElse: () => throw Exception('Item not found'),
         );
-
-        // Calculate net change in weight
         final oldWeight = _calculateTotalWeight(oldEntry);
         final newWeight = _calculateTotalWeight(newEntry);
-
         final netChange = oldWeight - newWeight;
         if (netChange != 0) {
           final txType = netChange > 0 ? 'IN' : 'OUT';
-
           await updateItemStock(item, netChange, txType);
         }
       }
@@ -2283,16 +2565,12 @@ class LedgerController extends GetxController {
     if (entry.itemId == null) {
       return;
     }
-
     final item = availableItems.firstWhere(
       (item) => item.id == entry.itemId,
       orElse: () => throw Exception('Item not found'),
     );
-
-    // Reverse the stock change (add back)
     final entryWeight = _calculateTotalWeight(entry);
     final reverseWeight = entryWeight;
-
     await updateItemStock(item, reverseWeight, 'IN');
   }
 
@@ -2302,22 +2580,17 @@ class LedgerController extends GetxController {
     double canWeight,
   ) async {
     final requiredWeight = cansQuantity * canWeight;
-
-    // Get the latest stock from database
     final db = await DBHelper().database;
     final itemMap = await db.query(
       'item',
       where: 'id = ?',
       whereArgs: [item.id],
     );
-
     if (itemMap.isEmpty) {
       return false;
     }
-
     final currentItem = Item.fromMap(itemMap.first);
     final isAvailable = currentItem.availableStock >= requiredWeight;
-
     return isAvailable;
   }
 
@@ -2367,7 +2640,6 @@ class LedgerController extends GetxController {
   Future<void> fetchLedgerEntries(String ledgerNo) async {
     final data = await repo.getLedgerEntries(ledgerNo);
     ledgerEntries.assignAll(data);
-    // filterLedgerEntries();
   }
 
   Future<void> loadRecentSearches() async {
@@ -2386,14 +2658,9 @@ class LedgerController extends GetxController {
   }
 
   Future<void> deleteLedgerEntry(int id, String ledgerNo) async {
-    // Get the entry before deleting it
     final entry = ledgerEntries.firstWhere((e) => e.id == id);
-
     await repo.deleteLedgerEntry(id, ledgerNo);
-
-    // Handle stock reversal for deleted entry
     await _handleItemStockForDeletedEntry(entry);
-
     final ledger = ledgers.firstWhere((l) => l.ledgerNo == ledgerNo);
     final aid = ledger.accountId;
     if (aid != null) {
@@ -2406,10 +2673,9 @@ class LedgerController extends GetxController {
   Future<void> updateLedgerTotals(String ledgerNo) async {
     final ledger = ledgers.firstWhere((l) => l.ledgerNo == ledgerNo);
     final entries = await repo.getLedgerEntries(ledgerNo);
-
     final totalDebit = entries.fold<double>(0.0, (sum, e) => sum + e.debit);
     final totalCredit = entries.fold<double>(0.0, (sum, e) => sum + e.credit);
-    final newBalance = totalCredit; // Updated to sum of credits only
+    final newBalance = totalCredit;
 
     final updatedLedger = Ledger(
       id: ledger.id,
@@ -2433,7 +2699,6 @@ class LedgerController extends GetxController {
     );
 
     await repo.updateLedger(updatedLedger);
-
     final index = ledgers.indexWhere((l) => l.id == ledger.id);
     if (index != -1) {
       ledgers[index] = updatedLedger;
@@ -2472,15 +2737,14 @@ class LedgerController extends GetxController {
     LedgerEntry? entry,
     required String ledgerNo,
   }) async {
-    await fetchItems(); // Ensure items are loaded first
-
+    await fetchItems();
     final parentLedger = ledgers.firstWhere(
       (l) => l.ledgerNo == ledgerNo,
       orElse: () => throw Exception('Ledger with number $ledgerNo not found'),
     );
 
     entryForms.clear();
-    _sharedVoucherNo = null; // Reset shared voucher number for single entry
+    _sharedVoucherNo = null;
 
     final newForm = EntryFormData();
     newForm.ledgerNoController.text = ledgerNo;
@@ -2488,9 +2752,9 @@ class LedgerController extends GetxController {
     newForm.accountIdController.text = parentLedger.accountId?.toString() ?? '';
     newForm.selectedDate.value = DateTime.now();
     newForm.currentStep.value = 0;
+    newForm.paymentMethod.value = 'cash'; // Default to cash
 
     if (entry != null) {
-      // Existing logic for editing an entry
       newForm.originalEntry = entry;
       newForm.voucherNoController.text = entry.voucherNo;
       newForm.transactionType.value = entry.transactionType;
@@ -2506,6 +2770,14 @@ class LedgerController extends GetxController {
       newForm.status.value = entry.status;
       newForm.statusController.text = entry.status;
       newForm.selectedDate.value = entry.date;
+
+      // Load payment method and cheque details if exists
+      newForm.paymentMethod.value = entry.paymentMethod ?? 'cash';
+      newForm.chequeNoController.text = entry.chequeNo ?? '';
+      newForm.chequeAmountController.text =
+          entry.chequeAmount?.toStringAsFixed(2) ?? '';
+      newForm.chequeDate.value = entry.chequeDate;
+      newForm.bankNameController.text = entry.bankName ?? '';
 
       if (entry.itemId != null) {
         final item = availableItems.firstWhereOrNull(
@@ -2526,13 +2798,12 @@ class LedgerController extends GetxController {
           newForm.updateDescription();
           newForm._updateTotalWeight();
         } else {
-          newForm.selectedItem.value = null; // Item not found, reset to null
+          newForm.selectedItem.value = null;
         }
       } else {
         newForm.selectedItem.value = null;
       }
-      _sharedVoucherNo =
-          entry.voucherNo; // Set for consistency in case 'Add more' is used
+      _sharedVoucherNo = entry.voucherNo;
     } else {
       newForm.originalEntry = null;
       newForm.transactionType.value = "Debit";
@@ -2540,12 +2811,11 @@ class LedgerController extends GetxController {
       newForm.status.value = "Debit";
       newForm.statusController.text = "Debit";
 
-      // Generate unique voucherNo for new single entry
       String voucherNo;
       if (_nextVoucherNums.containsKey(ledgerNo)) {
         final num = _nextVoucherNums[ledgerNo]!;
         voucherNo = 'VN${num.toString().padLeft(2, '0')}';
-        _nextVoucherNums[ledgerNo] = num + 1; // Increment for next session
+        _nextVoucherNums[ledgerNo] = num + 1;
       } else {
         final lastVoucherNo = await repo.getLastVoucherNo(ledgerNo);
         final regex = RegExp(r'VN(\d+)');
@@ -2556,25 +2826,23 @@ class LedgerController extends GetxController {
         }
         final num = maxNum + 1;
         voucherNo = 'VN${num.toString().padLeft(2, '0')}';
-        _nextVoucherNums[ledgerNo] =
-            num + 1; // Initialize and increment for next session
+        _nextVoucherNums[ledgerNo] = num + 1;
       }
       newForm.voucherNoController.text = voucherNo;
-      _sharedVoucherNo =
-          voucherNo; // Set for consistency in case 'Add more' is used
-      newForm.selectedItem.value = null; // Ensure no stale item
+      _sharedVoucherNo = voucherNo;
+      newForm.selectedItem.value = null;
     }
 
     await newForm._initPreviousBalance();
     entryForms.add(newForm);
 
-    // Add listeners for auto-negative sign
     newForm.creditController.addListener(
       () => _handleInputSign(
         newForm.creditController,
         newForm.transactionType.value == "Debit",
       ),
     );
+
     newForm.debitController.addListener(
       () => _handleInputSign(
         newForm.debitController,
@@ -2632,9 +2900,11 @@ class LedgerController extends GetxController {
       await repo.insertLedger(newLedger);
       await repo.createLedgerEntryTable(newLedger.ledgerNo);
     }
+
     if (aid != null) {
       await recalculateBalancesForAccount(aid);
     }
+
     clearForm();
     await fetchLedgers();
     if (context.mounted) NavigationHelper.pop(context);
@@ -2645,21 +2915,10 @@ class LedgerController extends GetxController {
     required String ledgerNo,
   }) async {
     List<LedgerEntry> savedEntries = [];
+    Future<Dialog?>? loadingDialogFuture;
 
     try {
-      // Ensure _sharedVoucherNo is set
-      if (_sharedVoucherNo == null) {
-        final lastVoucherNo = await repo.getLastVoucherNo(ledgerNo);
-        final regex = RegExp(r'VN(\d+)');
-        final match = regex.firstMatch(lastVoucherNo);
-        int maxNum = 0;
-        if (match != null) {
-          maxNum = int.tryParse(match.group(1)!) ?? 0;
-        }
-        _sharedVoucherNo = 'VN${(maxNum + 1).toString().padLeft(2, '0')}';
-        _nextVoucherNums[ledgerNo] = maxNum + 2; // Update cache for next entry
-      }
-
+      // First pass: Validate all forms without saving
       for (int i = 0; i < entryForms.length; i++) {
         final formData = entryForms[i];
         if (!formData.step1FormKey.currentState!.validate() ||
@@ -2682,7 +2941,6 @@ class LedgerController extends GetxController {
             formData.canWeightController.text.isNotEmpty) {
           final quantity = int.parse(formData.cansQuantityController.text);
           final canWeight = double.parse(formData.canWeightController.text);
-
           if (!await _validateStockAvailability(
             formData.selectedItem.value!,
             quantity,
@@ -2701,10 +2959,44 @@ class LedgerController extends GetxController {
             return [];
           }
         }
+      }
 
-        // Use the shared voucher number for all forms
+      // All validations passed, now show loading dialog
+      if (context.mounted) {
+        loadingDialogFuture = showDialog<Dialog?>(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return const AlertDialog(
+              content: Row(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 20),
+                  Text('Saving entries...'),
+                ],
+              ),
+            );
+          },
+        );
+      }
+
+      if (_sharedVoucherNo == null) {
+        final lastVoucherNo = await repo.getLastVoucherNo(ledgerNo);
+        final regex = RegExp(r'VN(\d+)');
+        final match = regex.firstMatch(lastVoucherNo);
+        int maxNum = 0;
+        if (match != null) {
+          maxNum = int.tryParse(match.group(1)!) ?? 0;
+        }
+        _sharedVoucherNo = 'VN${(maxNum + 1).toString().padLeft(2, '0')}';
+        _nextVoucherNums[ledgerNo] = maxNum + 2;
+      }
+
+      // Second pass: Save entries sequentially, awaiting each operation fully
+      for (int i = 0; i < entryForms.length; i++) {
+        final formData = entryForms[i];
+
         formData.voucherNoController.text = _sharedVoucherNo!;
-
         final parsedDebit =
             double.tryParse(formData.debitController.text) ?? 0.0;
         final parsedCredit =
@@ -2715,7 +3007,7 @@ class LedgerController extends GetxController {
         final newEntry = LedgerEntry(
           id: formData.originalEntry?.id,
           ledgerNo: formData.ledgerNoController.text,
-          voucherNo: _sharedVoucherNo!, // Use shared voucher number
+          voucherNo: _sharedVoucherNo!,
           accountId: formData.accountIdController.text.isNotEmpty
               ? int.parse(formData.accountIdController.text)
               : null,
@@ -2763,10 +3055,21 @@ class LedgerController extends GetxController {
                       (double.tryParse(formData.receivedCans.text) ?? 0.0))
                   .toString(),
           receivedCans: formData.receivedCans.text.toString(),
+          // New cheque fields
+          paymentMethod: formData.paymentMethod.value,
+          chequeNo: formData.chequeNoController.text.isNotEmpty
+              ? formData.chequeNoController.text
+              : null,
+          chequeAmount: formData.chequeAmountController.text.isNotEmpty
+              ? double.tryParse(formData.chequeAmountController.text)
+              : null,
+          chequeDate: formData.chequeDate.value,
+          bankName: formData.bankNameController.text.isNotEmpty
+              ? formData.bankNameController.text
+              : null,
         );
 
         if (formData.originalEntry == null) {
-          // New entry
           await repo.insertLedgerEntry(newEntry, ledgerNo);
           await _handleItemStockForNewEntry(newEntry);
           await repo.updateLedgerDebtOrCred(
@@ -2777,7 +3080,6 @@ class LedgerController extends GetxController {
                 : parsedCredit,
           );
         } else {
-          // Updated entry
           await _handleItemStockForUpdatedEntry(
             formData.originalEntry!,
             newEntry,
@@ -2785,12 +3087,13 @@ class LedgerController extends GetxController {
           await repo.updateLedgerEntry(newEntry, ledgerNo);
         }
 
+        // Ensure full await between entries to release any potential locks
+        await Future.delayed(const Duration(milliseconds: 100));
+
         savedEntries.add(newEntry);
       }
 
-      // Convert saved LedgerEntries to ReceiptItems
       final List<ReceiptItem> receiptItems = savedEntries.map((entry) {
-        // Calculate amount: Use sellingPricePerCan if available, else fall back to itemPricePerUnit
         final price = entry.sellingPricePerCan ?? entry.itemPricePerUnit ?? 0.0;
         final quantity = entry.cansQuantity ?? 0;
         final amount = price;
@@ -2805,11 +3108,11 @@ class LedgerController extends GetxController {
         );
       }).toList();
 
-      // All saved successfully
       final ledger = ledgers.firstWhere(
         (l) => l.ledgerNo == ledgerNo,
         orElse: () => throw Exception('Ledger with number $ledgerNo not found'),
       );
+
       final aid = ledger.accountId;
       if (aid != null) {
         await recalculateBalancesForAccount(aid);
@@ -2817,16 +3120,18 @@ class LedgerController extends GetxController {
 
       await updateLedgerTotals(ledgerNo);
       await fetchLedgerEntries(ledgerNo);
+
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               '${savedEntries.length} ledger ${savedEntries.length == 1 ? 'entry' : 'entries'} saved successfully',
             ),
-            backgroundColor: Colors.green,
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
           ),
         );
       }
+
       return receiptItems;
     } catch (e) {
       if (context.mounted) {
@@ -2839,7 +3144,10 @@ class LedgerController extends GetxController {
       }
       return [];
     } finally {
-      // Clear _sharedVoucherNo and _nextVoucherNums to avoid stale voucher numbers
+      // Dismiss loading dialog if shown (no need to await the future)
+      if (loadingDialogFuture != null && context.mounted) {
+        Navigator.of(context).pop();
+      }
       _sharedVoucherNo = null;
       _nextVoucherNums.clear();
       entryForms.clear();
@@ -2879,6 +3187,7 @@ class LedgerController extends GetxController {
         );
       }
     }
+
     if (trans.isEmpty) return 0.0;
     trans.sort((a, b) => a.date.compareTo(b.date));
     return trans.last.balance;
@@ -2890,7 +3199,7 @@ class LedgerController extends GetxController {
     );
     double.tryParse(debitController.text) ?? 0.0;
     final credit = double.tryParse(creditController.text) ?? 0.0;
-    final newBalance = previous + credit; // Updated to accumulate credits only
+    final newBalance = previous + credit;
     balanceController.text = newBalance.toStringAsFixed(2);
     status.value = newBalance > 0 ? 'Debit' : 'Credit';
     statusController.text = status.value ?? '';
@@ -2899,7 +3208,6 @@ class LedgerController extends GetxController {
   Future<void> recalculateBalancesForAccount(int aid) async {
     List<TransactionItem> trans = [];
     var ledgersForAccount = ledgers.where((l) => l.accountId == aid).toList();
-
     Map<int, Ledger> ledgerMap = {for (var l in ledgersForAccount) l.id!: l};
     Map<int, LedgerEntry> entryMap = {};
 
@@ -2933,14 +3241,16 @@ class LedgerController extends GetxController {
         );
       }
     }
+
     if (trans.isEmpty) return;
     trans.sort((a, b) => a.date.compareTo(b.date));
-    double currentBalance = 0.0; // Start from 0 for first row
+    double currentBalance = 0.0;
     for (var t in trans) {
-      currentBalance += t.credit; // Accumulate only credits
+      currentBalance += t.credit;
       t.balance = currentBalance;
       t.status = currentBalance > 0 ? 'Debit' : 'Credit';
     }
+
     for (var t in trans) {
       if (t.type == 'ledger') {
         final original = ledgerMap[t.id]!;
@@ -2986,7 +3296,6 @@ class LedgerController extends GetxController {
           createdBy: original.createdBy,
           createdAt: original.createdAt,
           updatedAt: DateTime.now(),
-          // Item fields
           itemId: original.itemId,
           itemName: original.itemName,
           itemPricePerUnit: original.itemPricePerUnit,
@@ -2995,6 +3304,11 @@ class LedgerController extends GetxController {
           sellingPricePerCan: original.sellingPricePerCan,
           balanceCans: original.balanceCans.toString(),
           receivedCans: original.receivedCans.toString(),
+          paymentMethod: original.paymentMethod,
+          chequeNo: original.chequeNo,
+          chequeAmount: original.chequeAmount,
+          chequeDate: original.chequeDate,
+          bankName: original.bankName,
         );
         await repo.updateLedgerEntry(updatedEntry, t.ledgerNo);
       }
@@ -3013,7 +3327,6 @@ class LedgerController extends GetxController {
     final regex = RegExp(r'VN(\d+)');
     int max = 0;
 
-    // Check in-memory voucher numbers
     final source = isEntry ? ledgerEntries : ledgers;
     for (final item in source) {
       final voucherNo = isEntry
@@ -3026,7 +3339,6 @@ class LedgerController extends GetxController {
       }
     }
 
-    // For ledger entries, also check the database
     if (isEntry) {
       final lastVoucherNo = await repo.getLastVoucherNo(ledgerNo!);
       final match = regex.firstMatch(lastVoucherNo);
@@ -3036,7 +3348,6 @@ class LedgerController extends GetxController {
       }
     }
 
-    // Return the next voucher number with leading zeros
     final result = 'VN${(max + 1).toString().padLeft(2, '0')}';
     return result;
   }
@@ -3058,6 +3369,10 @@ class LedgerController extends GetxController {
     statusController.clear();
     transactionType.value = null;
     status.value = null;
+
+    // Clear cheque fields
+    clearChequeFields();
+
     if (!keepDate) {
       selectedDate.value = DateTime.now();
     }
@@ -3113,12 +3428,19 @@ class LedgerController extends GetxController {
     tagsController.dispose();
     createdByController.dispose();
     statusController.dispose();
+
+    // Dispose cheque field controllers
+    chequeNoController.dispose();
+    chequeAmountController.dispose();
+    chequeDateController.dispose();
+    bankNameController.dispose();
+
     for (var form in entryForms) {
       form.dispose();
     }
     entryForms.clear();
     _nextVoucherNums.clear();
-    _sharedVoucherNo = null; // Clear shared voucher number
+    _sharedVoucherNo = null;
     super.onClose();
   }
 
@@ -3175,6 +3497,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
     final LedgerTableController ledgerTableController =
         Get.find<LedgerTableController>();
     final ScrollController scrollController = ScrollController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       controller.loadLedgerEntry(entry: entry, ledgerNo: ledgerNo);
@@ -3197,37 +3520,24 @@ class LedgerEntryAddEdit extends StatelessWidget {
               children: [
                 ...List.generate(controller.entryForms.length, (index) {
                   return Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                    elevation: isDark ? 4 : 0,
                     child: Stack(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            gradient: LinearGradient(
-                              colors: [
-                                Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.2),
-                                (Theme.of(context).cardTheme.color ??
-                                        Theme.of(context).colorScheme.surface)
-                                    .withValues(alpha: 1),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.2),
-                                blurRadius: 8,
-                                offset: const Offset(2, 2),
-                              ),
-                            ],
+                            borderRadius: BorderRadius.circular(12),
+                            gradient: isDark
+                                ? LinearGradient(
+                                    colors: [
+                                      Theme.of(context).colorScheme.primary
+                                          .withValues(alpha: 0.2),
+                                      Theme.of(context).colorScheme.surface,
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  )
+                                : null,
                           ),
                           child: buildForm(
                             index,
@@ -3239,11 +3549,14 @@ class LedgerEntryAddEdit extends StatelessWidget {
                         ),
                         if (controller.entryForms.length > 1)
                           Positioned(
-                            top: 16,
-                            right: 0,
+                            top: 12,
+                            right: 12,
                             child: IconButton(
                               tooltip: "Remove entry",
-                              icon: Icon(Icons.clear, color: Colors.red),
+                              icon: Icon(
+                                Icons.close,
+                                color: Theme.of(context).colorScheme.error,
+                              ),
                               onPressed: () {
                                 controller.entryForms.removeAt(index);
                               },
@@ -3257,7 +3570,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    TextButton(
+                    TextButton.icon(
                       onPressed: () async {
                         await controller.addNewEntryForm(ledgerNo);
                         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -3268,12 +3581,15 @@ class LedgerEntryAddEdit extends StatelessWidget {
                           );
                         });
                       },
-                      child: Text(
+                      icon: Icon(
+                        Icons.add,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      label: Text(
                         'Add more',
-                        style: Theme.of(context).textTheme.bodySmall!.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.8),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
                         ),
                       ),
                     ),
@@ -3287,10 +3603,8 @@ class LedgerEntryAddEdit extends StatelessWidget {
                       },
                       child: Text(
                         'Cancel',
-                        style: Theme.of(context).textTheme.bodySmall!.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.8),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ),
@@ -3343,16 +3657,12 @@ class LedgerEntryAddEdit extends StatelessWidget {
                           scrollController.dispose();
                         }
                       },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Theme.of(context).iconTheme.color,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
                       child: Text(
                         controller.entryForms.length > 1 ? 'Save All' : 'Save',
-                        style: Theme.of(context).textTheme.bodySmall,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
@@ -3427,39 +3737,40 @@ class LedgerEntryAddEdit extends StatelessWidget {
   }
 
   void showPrintReceiptDialog(BuildContext context, List<ReceiptItem> entries) {
+    final EntryFormData formData = EntryFormData();
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
         String vehicleNumber = '';
         bool askPrint = true;
+        bool includeLogo = true;
 
         return StatefulBuilder(
           builder: (ctx, setState) {
             return AlertDialog(
-              backgroundColor: Colors.grey[900],
+              backgroundColor: Theme.of(context).colorScheme.surface,
               title: Text(
                 'Print Receipt',
-                style: TextStyle(color: Colors.white),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
               content: askPrint
                   ? Text(
                       'Do you want to print the receipt?',
-                      style: TextStyle(color: Colors.white),
+                      style: Theme.of(context).textTheme.bodyMedium,
                     )
                   : Column(
                       mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         TextField(
-                          style: TextStyle(color: Colors.white),
+                          style: Theme.of(context).textTheme.bodyMedium,
                           decoration: InputDecoration(
                             labelText: 'Vehicle Number',
-                            labelStyle: TextStyle(color: Colors.white70),
-                            enabledBorder: UnderlineInputBorder(
-                              borderSide: BorderSide(color: Colors.white54),
-                            ),
-                            focusedBorder: UnderlineInputBorder(
-                              borderSide: BorderSide(color: Colors.white),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
                             ),
                           ),
                           onChanged: (val) {
@@ -3467,6 +3778,31 @@ class LedgerEntryAddEdit extends StatelessWidget {
                               vehicleNumber = val;
                             });
                           },
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: includeLogo,
+                              activeColor: Theme.of(
+                                context,
+                              ).colorScheme.primary,
+                              checkColor: Theme.of(
+                                context,
+                              ).colorScheme.onPrimary,
+                              onChanged: (val) {
+                                setState(() {
+                                  includeLogo = val ?? true;
+                                });
+                              },
+                            ),
+                            Expanded(
+                              child: Text(
+                                'Include Company Logo on Receipt',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -3478,14 +3814,24 @@ class LedgerEntryAddEdit extends StatelessWidget {
                         askPrint = false;
                       });
                     },
-                    child: Text('Yes', style: TextStyle(color: Colors.blue)),
+                    child: Text(
+                      'Yes',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
                   ),
                 if (askPrint)
                   TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(),
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      NavigationHelper.pop(context);
+                    },
                     child: Text(
                       'No',
-                      style: TextStyle(color: Colors.redAccent),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
                 if (!askPrint)
@@ -3496,17 +3842,34 @@ class LedgerEntryAddEdit extends StatelessWidget {
                     },
                     child: Text(
                       'Cancel',
-                      style: TextStyle(color: Colors.redAccent),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
                 if (!askPrint)
                   TextButton(
                     onPressed: vehicleNumber.trim().isEmpty
                         ? null
-                        : () {
-                            printEntry(entries, vehicleNumber, context);
+                        : () async {
+                            Navigator.of(ctx).pop();
+                            await printEntry(
+                              entries,
+                              vehicleNumber,
+                              context,
+                              includeLogo,
+                              formData,
+                            );
+                            if (context.mounted) {
+                              NavigationHelper.pop(context);
+                            }
                           },
-                    child: Text('Print', style: TextStyle(color: Colors.green)),
+                    child: Text(
+                      'Print',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
                   ),
               ],
             );
@@ -3520,9 +3883,10 @@ class LedgerEntryAddEdit extends StatelessWidget {
     List<ReceiptItem> items,
     String vehicleNo,
     BuildContext context,
+    bool showLogo,
+    EntryFormData formData,
   ) async {
     final ledgerTableController = Get.find<LedgerTableController>();
-    final ledgerController = Get.find<LedgerController>();
     final customerController = Get.find<CustomerController>();
 
     double currentAmount = 0.0;
@@ -3557,10 +3921,14 @@ class LedgerEntryAddEdit extends StatelessWidget {
         ledgerTableController.filteredLedgerEntries.length - 1 - items.length;
 
     double previousAmount = 0.0;
-    if (prevIndex >= 0 &&
+    final balanceText = ledgerTableController.netBalance - currentAmount;
+    if (ledgerTableController.filteredLedgerEntries.length == 1) {
+      if (balanceText != 0 || balanceText != 0.0) {
+        previousAmount = balanceText;
+      }
+    } else if (prevIndex >= 0 &&
         prevIndex < ledgerTableController.filteredLedgerEntries.length) {
-      previousAmount =
-          ledgerTableController.filteredLedgerEntries[prevIndex].balance;
+      previousAmount = ledgerTableController.netBalance - currentAmount;
     }
 
     final data = ReceiptData(
@@ -3580,13 +3948,12 @@ class LedgerEntryAddEdit extends StatelessWidget {
       balanceCans: balanceCans,
       currentAmount: currentAmount,
       previousAmount: previousAmount,
-      netBalance: getNetBalance(ledgerTableController, ledgerController),
+      netBalance: ledgerTableController.netBalance,
     );
 
-    await ReceiptPdfGenerator.generateAndPrint(data).then((value) {
-      Navigator.of(context).pop();
-      NavigationHelper.pop(context);
-    });
+    // ✅ REMOVE .then() - just await the print operation
+    await ReceiptPdfGenerator.generateAndPrint(data, showLogo: showLogo);
+    // Navigation is now handled in the dialog button callbacks
   }
 
   double getNetBalance(
@@ -3604,7 +3971,6 @@ class LedgerEntryAddEdit extends StatelessWidget {
     }
 
     allEntries.sort((a, b) => b.date.compareTo(a.date));
-
     return allEntries.first.balance;
   }
 
@@ -3853,6 +4219,160 @@ class LedgerEntryAddEdit extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+
+            // Payment Method Dropdown
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: formData.paymentMethod.value,
+                    focusNode: formData.paymentMethodFocusNode,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    decoration: InputDecoration(
+                      labelText: 'Transaction Type',
+                      labelStyle: Theme.of(context).textTheme.bodySmall!
+                          .copyWith(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: 0.8),
+                          ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    items: const ['cash', 'cheque']
+                        .map(
+                          (t) => DropdownMenuItem<String>(
+                            value: t,
+                            child: Text(t == 'cash' ? 'Cash' : 'Cheque'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      formData.paymentMethod.value = value!;
+                    },
+                    validator: (value) => value == null || value.isEmpty
+                        ? 'Transaction Type is required'
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(child: Container()), // Empty container for layout
+              ],
+            ),
+
+            // Cheque Fields (conditionally shown)
+            if (formData.paymentMethod.value == 'cheque') ...[
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildTextField(
+                      context: context,
+                      controller: formData.chequeNoController,
+                      focusNode: formData.chequeNoFocusNode,
+                      label: 'Cheque No',
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Cheque No is required for cheque transactions'
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildTextField(
+                      context: context,
+                      controller: formData.chequeAmountController,
+                      focusNode: formData.chequeAmountFocusNode,
+                      label: 'Cheque Amount',
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'^\d*\.?\d*'),
+                        ),
+                      ],
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Cheque Amount is required for cheque transactions'
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      focusNode: formData.chequeDateFocusNode,
+                      onTap: () =>
+                          controller.selectChequeDateForForm(context, index),
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          labelText: 'Cheque Date',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          labelStyle: Theme.of(context).textTheme.bodySmall!
+                              .copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: 0.8),
+                              ),
+                        ),
+                        child: Text(
+                          formData.chequeDate.value != null
+                              ? DateFormat(
+                                  'dd-MM-yyyy',
+                                ).format(formData.chequeDate.value!)
+                              : 'Select Cheque Date',
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: formData.bankNameController.text.isNotEmpty
+                          ? formData.bankNameController.text
+                          : null,
+                      focusNode: formData.bankNameFocusNode,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      decoration: InputDecoration(
+                        labelText: 'Bank Name',
+                        labelStyle: Theme.of(context).textTheme.bodySmall!
+                            .copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withValues(alpha: 0.8),
+                            ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      items: controller.bankList
+                          .map(
+                            (bank) => DropdownMenuItem<String>(
+                              value: bank,
+                              child: Text(bank),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        formData.bankNameController.text = value!;
+                      },
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Bank Name is required for cheque transactions'
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         );
       } else {
@@ -3948,10 +4468,117 @@ class LedgerEntryAddEdit extends StatelessWidget {
                 ),
               ),
             ),
+            const SizedBox(height: 16),
+
+            // Payment Method Dropdown (Mobile)
+            DropdownButtonFormField<String>(
+              initialValue: formData.paymentMethod.value,
+              focusNode: formData.paymentMethodFocusNode,
+              style: Theme.of(context).textTheme.bodySmall,
+              decoration: InputDecoration(
+                labelText: 'Transaction Type',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              items: const ['cash', 'cheque']
+                  .map(
+                    (t) => DropdownMenuItem<String>(
+                      value: t,
+                      child: Text(t == 'cash' ? 'Cash' : 'Cheque'),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                formData.paymentMethod.value = value!;
+              },
+              validator: (value) => value == null || value.isEmpty
+                  ? 'Transaction Type is required'
+                  : null,
+            ),
+
+            // Cheque Fields (conditionally shown - Mobile)
+            if (formData.paymentMethod.value == 'cheque') ...[
+              const SizedBox(height: 16),
+              _buildTextField(
+                context: context,
+                controller: formData.chequeNoController,
+                focusNode: formData.chequeNoFocusNode,
+                label: 'Cheque No',
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Cheque No is required for cheque transactions'
+                    : null,
+              ),
+              const SizedBox(height: 16),
+              _buildTextField(
+                context: context,
+                controller: formData.chequeAmountController,
+                focusNode: formData.chequeAmountFocusNode,
+                label: 'Cheque Amount',
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                ],
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Cheque Amount is required for cheque transactions'
+                    : null,
+              ),
+              const SizedBox(height: 16),
+              InkWell(
+                focusNode: formData.chequeDateFocusNode,
+                onTap: () => controller.selectChequeDateForForm(context, index),
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Cheque Date',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(
+                    formData.chequeDate.value != null
+                        ? DateFormat(
+                            'dd-MM-yyyy',
+                          ).format(formData.chequeDate.value!)
+                        : 'Select Cheque Date',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: formData.bankNameController.text.isNotEmpty
+                    ? formData.bankNameController.text
+                    : null,
+                focusNode: formData.bankNameFocusNode,
+                style: Theme.of(context).textTheme.bodySmall,
+                decoration: InputDecoration(
+                  labelText: 'Bank Name',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                items: controller.bankList
+                    .map(
+                      (bank) => DropdownMenuItem<String>(
+                        value: bank,
+                        child: Text(bank),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  formData.bankNameController.text = value!;
+                },
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Bank Name is required for cheque transactions'
+                    : null,
+              ),
+            ],
           ],
         );
       }
     } else if (stepNum == 2) {
+      // ... existing step 2 code remains the same ...
       if (isDesktop) {
         return Column(
           children: [
@@ -3966,7 +4593,6 @@ class LedgerEntryAddEdit extends StatelessWidget {
                                 item.id == formData.selectedItem.value!.id,
                           )
                         : null;
-
                     return DropdownButtonFormField<Item>(
                       initialValue: selectedItem,
                       focusNode: formData.itemFocusNode,
@@ -4054,7 +4680,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
                     ],
-                    readOnly: true,
+                    readOnly: false,
                     validator: (value) => value == null || value.isEmpty
                         ? 'Price per Kg/L is required'
                         : null,
@@ -4166,7 +4792,6 @@ class LedgerEntryAddEdit extends StatelessWidget {
                       (item) => item.id == formData.selectedItem.value!.id,
                     )
                   : null;
-
               return DropdownButtonFormField<Item>(
                 initialValue: selectedItem,
                 focusNode: formData.itemFocusNode,
@@ -4323,6 +4948,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
         );
       }
     } else {
+      // ... existing step 3 code remains the same ...
       if (isDesktop) {
         return Column(
           children: [
@@ -4683,6 +5309,8 @@ class EntryFormData {
   final GlobalKey<FormState> formKey = GlobalKey<FormState>();
   LedgerEntry? originalEntry;
   final numberFormat = NumberFormat('#,##0.00', 'en_US');
+
+  // Existing controllers
   late TextEditingController ledgerNoController;
   late TextEditingController voucherNoController;
   late TextEditingController accountNameController;
@@ -4697,7 +5325,8 @@ class EntryFormData {
   late TextEditingController tagsController;
   late TextEditingController createdByController;
   late TextEditingController statusController;
-  // Item-related
+
+  // Item-related controllers
   late TextEditingController itemIdController;
   late TextEditingController itemNameController;
   late TextEditingController itemPriceController;
@@ -4707,16 +5336,29 @@ class EntryFormData {
   late TextEditingController totalWeightController;
   late TextEditingController balanceCans;
   late TextEditingController receivedCans;
+
+  // New cheque field controllers
+  late TextEditingController chequeNoController;
+  late TextEditingController chequeAmountController;
+  late TextEditingController bankNameController;
+
   final ledgerTableController = Get.find<LedgerTableController>();
   final RxString transactionType = RxString("Debit");
   final RxString status = RxString("Debit");
   final Rx<DateTime> selectedDate = DateTime.now().obs;
   final Rx<Item?> selectedItem = Rxn<Item?>(null);
+
+  // New payment method field
+  final RxString paymentMethod = RxString('cash');
+  final Rx<DateTime?> chequeDate = Rxn<DateTime>();
+
   double? _previousBalance;
   late final GlobalKey<FormState> step1FormKey;
   late final GlobalKey<FormState> step2FormKey;
   late final GlobalKey<FormState> step3FormKey;
   final RxInt currentStep = 0.obs;
+
+  // Existing focus nodes
   final ledgerNoFocusNode = FocusNode();
   final voucherNoFocusNode = FocusNode();
   final accountNameFocusNode = FocusNode();
@@ -4739,17 +5381,51 @@ class EntryFormData {
   final referenceNoFocusNode = FocusNode();
   final categoryFocusNode = FocusNode();
   final createdByFocusNode = FocusNode();
-  bool _isUpdatingDebit = false; // Flag to prevent recursive updates
-  bool _isUpdatingCredit = false; // Flag to prevent recursive updates
+
+  // New cheque field focus nodes
+  final paymentMethodFocusNode = FocusNode();
+  final chequeNoFocusNode = FocusNode();
+  final chequeAmountFocusNode = FocusNode();
+  final chequeDateFocusNode = FocusNode();
+  final bankNameFocusNode = FocusNode();
+
+  bool _isUpdatingDebit = false;
+  bool _isUpdatingCredit = false;
+
+  // Bank list for dropdown
+  final List<String> bankList = [
+    'Habib Bank Limited (HBL)',
+    'United Bank Limited (UBL)',
+    'MCB Bank Limited',
+    'Allied Bank Limited (ABL)',
+    'National Bank of Pakistan (NBP)',
+    'Bank Alfalah',
+    'Meezan Bank',
+    'Faysal Bank',
+    'Askari Bank',
+    'Standard Chartered Bank (Pakistan)',
+    'Bank of Punjab (BOP)',
+    'Bank of Khyber',
+    'Sindh Bank',
+    'Habib Metropolitan Bank',
+    'JS Bank',
+    'Summit Bank',
+    'First Women Bank Limited',
+    'Dubai Islamic Bank Pakistan',
+    'Samba Bank',
+    'Soneri Bank',
+    'Silk Bank',
+  ];
 
   EntryFormData() {
+    // Initialize existing controllers
     ledgerNoController = TextEditingController();
     voucherNoController = TextEditingController();
     accountNameController = TextEditingController();
     accountIdController = TextEditingController();
     transactionTypeController = TextEditingController(text: "Debit");
-    debitController = TextEditingController(text: "0.00"); // Initialize to 0
-    creditController = TextEditingController(text: "0.00"); // Initialize to 0
+    debitController = TextEditingController(text: "0.00");
+    creditController = TextEditingController(text: "0.00");
     balanceController = TextEditingController();
     descriptionController = TextEditingController();
     referenceNoController = TextEditingController();
@@ -4757,7 +5433,8 @@ class EntryFormData {
     tagsController = TextEditingController();
     createdByController = TextEditingController();
     statusController = TextEditingController(text: "Debit");
-    // Item
+
+    // Item controllers
     itemIdController = TextEditingController();
     itemNameController = TextEditingController();
     itemPriceController = TextEditingController();
@@ -4769,19 +5446,37 @@ class EntryFormData {
       text: ledgerTableController.balanceCans.toStringAsFixed(2),
     );
     receivedCans = TextEditingController();
+
+    // Initialize new cheque controllers
+    chequeNoController = TextEditingController();
+    chequeAmountController = TextEditingController();
+    bankNameController = TextEditingController();
+
     step1FormKey = GlobalKey<FormState>();
     step2FormKey = GlobalKey<FormState>();
     step3FormKey = GlobalKey<FormState>();
 
-    // Listeners
+    // Existing listeners
     canWeightController.addListener(_onCanOrQtyChanged);
     cansQuantityController.addListener(_onCanOrQtyChanged);
+    itemPriceController.addListener(_onCanOrQtyChanged);
     creditController.addListener(_handleCreditInputForDebitTransaction);
     debitController.addListener(_handleDebitInputForCreditTransaction);
     creditController.addListener(_updateBalance);
     debitController.addListener(_updateBalance);
 
-    // Ever for selectedItem
+    // New listener for payment method changes
+    ever(paymentMethod, (method) {
+      if (method == 'cash') {
+        // Clear cheque fields when switching to cash
+        chequeNoController.clear();
+        chequeAmountController.clear();
+        chequeDate.value = null;
+        bankNameController.clear();
+      }
+    });
+
+    // Existing item listener
     ever(selectedItem, (item) {
       if (item != null) {
         itemIdController.text = item.id.toString();
@@ -4800,7 +5495,7 @@ class EntryFormData {
       }
     });
 
-    // Ever for transactionType to handle initialization and updates
+    // Existing transaction type listener
     ever(transactionType, (type) {
       if (type == "Debit") {
         _isUpdatingCredit = true;
@@ -4833,7 +5528,7 @@ class EntryFormData {
   }
 
   void _handleCreditInputForDebitTransaction() {
-    if (_isUpdatingCredit) return; // Prevent recursive updates
+    if (_isUpdatingCredit) return;
     if (transactionType.value == "Debit") {
       final currentValue = creditController.text;
       if (currentValue.isNotEmpty &&
@@ -4852,7 +5547,7 @@ class EntryFormData {
   }
 
   void _handleDebitInputForCreditTransaction() {
-    if (_isUpdatingDebit) return; // Prevent recursive updates
+    if (_isUpdatingDebit) return;
     if (transactionType.value == "Credit") {
       final currentValue = debitController.text;
       if (currentValue.isNotEmpty &&
@@ -4871,7 +5566,7 @@ class EntryFormData {
   }
 
   Future<void> _initPreviousBalance() async {
-    _previousBalance = ledgerTableController.netBalance; // Use netBalance
+    _previousBalance = ledgerTableController.netBalance;
     _updateBalanceFromPrevious();
   }
 
@@ -4888,28 +5583,25 @@ class EntryFormData {
 
   void _calculateSellingPrice() {
     if (selectedItem.value == null) return;
-
     final pricePerKg = double.tryParse(itemPriceController.text) ?? 0;
     final canWeight = double.tryParse(canWeightController.text) ?? 0;
     final quantity = int.tryParse(cansQuantityController.text) ?? 0;
-
     if (pricePerKg > 0 && canWeight > 0 && quantity > 0) {
       final sellingPrice = pricePerKg * canWeight * quantity;
       sellingPriceController.text = sellingPrice.toStringAsFixed(2);
-
       if (transactionType.value == 'Debit') {
         _isUpdatingDebit = true;
         debitController.text = sellingPrice.toStringAsFixed(2);
         _isUpdatingDebit = false;
         _isUpdatingCredit = true;
-        creditController.text = "0.00"; // Ensure credit is 0 for Debit
+        creditController.text = "0.00";
         _isUpdatingCredit = false;
       } else if (transactionType.value == 'Credit') {
         _isUpdatingCredit = true;
         creditController.text = sellingPrice.toStringAsFixed(2);
         _isUpdatingCredit = false;
         _isUpdatingDebit = true;
-        debitController.text = "0.00"; // Ensure debit is 0 for Credit
+        debitController.text = "0.00";
         _isUpdatingDebit = false;
       }
       _updateBalance();
@@ -4920,7 +5612,6 @@ class EntryFormData {
     final canWeight = double.tryParse(canWeightController.text) ?? 0;
     final quantity = int.tryParse(cansQuantityController.text) ?? 0;
     final totalWeight = canWeight * quantity;
-
     totalWeightController.text = totalWeight.toStringAsFixed(2);
   }
 
@@ -4950,6 +5641,7 @@ class EntryFormData {
   }
 
   void dispose() {
+    // Dispose existing controllers
     ledgerNoController.dispose();
     voucherNoController.dispose();
     accountNameController.dispose();
@@ -4973,5 +5665,39 @@ class EntryFormData {
     totalWeightController.dispose();
     balanceCans.dispose();
     receivedCans.dispose();
+
+    // Dispose new cheque controllers
+    chequeNoController.dispose();
+    chequeAmountController.dispose();
+    bankNameController.dispose();
+
+    // Dispose focus nodes
+    ledgerNoFocusNode.dispose();
+    voucherNoFocusNode.dispose();
+    accountNameFocusNode.dispose();
+    accountIdFocusNode.dispose();
+    transactionTypeFocusNode.dispose();
+    dateFocusNode.dispose();
+    itemFocusNode.dispose();
+    cansQuantityFocusNode.dispose();
+    itemPriceFocusNode.dispose();
+    canWeightFocusNode.dispose();
+    sellingPriceFocusNode.dispose();
+    totalWeightFocusNode.dispose();
+    balanceCansFocusNode.dispose();
+    receivedCansFocusNode.dispose();
+    debitFocusNode.dispose();
+    creditFocusNode.dispose();
+    balanceFocusNode.dispose();
+    statusFocusNode.dispose();
+    descriptionFocusNode.dispose();
+    referenceNoFocusNode.dispose();
+    categoryFocusNode.dispose();
+    createdByFocusNode.dispose();
+    paymentMethodFocusNode.dispose();
+    chequeNoFocusNode.dispose();
+    chequeAmountFocusNode.dispose();
+    chequeDateFocusNode.dispose();
+    bankNameFocusNode.dispose();
   }
 }

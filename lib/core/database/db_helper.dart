@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:ledger_master/core/models/item.dart';
 import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -29,6 +31,17 @@ class DBHelper {
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onDowngrade: _onDowngrade,
+      onConfigure: (db) async {
+        // Enable WAL mode for better concurrency and reduced locking
+        await db.execute('PRAGMA journal_mode=WAL');
+        // Increase timeout for busy locks (e.g., during concurrent access)
+        await db.execute('PRAGMA busy_timeout=5000');
+        // Optional: Other PRAGMAs for performance
+        await db.execute(
+          'PRAGMA synchronous=NORMAL',
+        ); // Balanced safety/performance
+        await db.execute('PRAGMA cache_size=10000'); // Larger cache for writes
+      },
     );
   }
 
@@ -94,7 +107,8 @@ class DBHelper {
         customerNo TEXT NOT NULL,
         mobileNo TEXT NOT NULL,
         type TEXT NOT NULL,
-        ntnNo TEXT
+        ntnNo TEXT,
+        openingBalance TEXT
       )
     ''');
 
@@ -124,6 +138,23 @@ class DBHelper {
         FOREIGN KEY(itemId) REFERENCES item(id)
       )
     ''');
+
+    // Create expense_purchases table
+    await db.execute('''
+      CREATE TABLE expense_purchases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        amount REAL NOT NULL,
+        madeBy TEXT NOT NULL,
+        category TEXT NOT NULL,
+        paymentMethod TEXT NOT NULL,
+        referenceNumber TEXT,
+        notes TEXT,
+        createdAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL
+      )
+    ''');
   }
 
   Future<void> createLedgerEntryTable(String ledgerNo) async {
@@ -132,16 +163,16 @@ class DBHelper {
     final tableName = 'ledger_entries_$safeLedgerNo';
 
     try {
-      // Check if table exists first
+      // Check if the table exists
       final tableExists = await db.rawQuery(
         '''
       SELECT name FROM sqlite_master
       WHERE type='table' AND name=?
-    ''',
+      ''',
         [tableName],
       );
 
-      // Only create table if it doesn't exist
+      // If table does not exist → create it
       if (tableExists.isEmpty) {
         await db.execute('''
         CREATE TABLE $tableName (
@@ -171,12 +202,49 @@ class DBHelper {
           sellingPricePerCan REAL,
           balanceCans TEXT,
           receivedCans TEXT,
+          paymentMethod TEXT DEFAULT 'cash',
+          chequeNo TEXT,
+          chequeAmount REAL,
+          chequeDate TEXT,
+          bankName TEXT,
           FOREIGN KEY (ledgerNo) REFERENCES ledger(ledgerNo)
         )
       ''');
+      } else {
+        // Table already exists → ensure all required columns exist
+        final columns = await db.rawQuery('PRAGMA table_info($tableName)');
+        final existing = columns.map((e) => e['name'] as String).toSet();
+
+        // Define new columns that might be missing
+        final newColumns = <String, String>{
+          'paymentMethod': "TEXT DEFAULT 'cash'",
+          'chequeNo': 'TEXT',
+          'chequeAmount': 'REAL',
+          'chequeDate': 'TEXT',
+          'bankName': 'TEXT',
+        };
+
+        // Add only missing columns (avoids "duplicate column" error)
+        for (final entry in newColumns.entries) {
+          if (!existing.contains(entry.key)) {
+            await db.execute(
+              'ALTER TABLE $tableName ADD COLUMN ${entry.key} ${entry.value}',
+            );
+          }
+        }
+
+        // Set default payment method for existing rows
+        await db.rawUpdate('''
+        UPDATE $tableName
+        SET paymentMethod = COALESCE(paymentMethod, 'cash'),
+            chequeNo = COALESCE(chequeNo, NULL),
+            chequeAmount = COALESCE(chequeAmount, NULL),
+            chequeDate = COALESCE(chequeDate, NULL),
+            bankName = COALESCE(bankName, NULL)
+      ''');
       }
-      // If table exists, do nothing - preserve existing data
     } catch (e) {
+      debugPrint('Error creating or updating $tableName: $e');
       rethrow;
     }
   }
@@ -208,6 +276,7 @@ class DBHelper {
         transactionType TEXT NOT NULL,
         debit REAL NOT NULL,
         credit REAL NOT NULL,
+        newStock REAL NOT NULL,
         balance REAL NOT NULL,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
@@ -220,18 +289,28 @@ class DBHelper {
     }
   }
 
+  // New: Transaction wrapper for atomic operations (use this in saveAllLedgerEntries)
+  Future<T> runInTransaction<T>(
+    Future<T> Function(Transaction txn) action,
+  ) async {
+    final db = await database;
+    return await db.transaction(action);
+  }
+
+  // Updated: Support for transaction in updateLedgerDebtOrCred
   Future<void> updateLedgerDebtOrCred(
     String flag,
     String ledgerNo,
-    double value,
-  ) async {
+    double value, [
+    Transaction? txn,
+  ]) async {
     if (flag != 'debit' && flag != 'credit') {
       throw Exception('Invalid column name');
     }
 
-    final db = await database;
+    final executor = txn ?? await database;
 
-    final result = await db.rawQuery(
+    final result = await executor.rawQuery(
       'SELECT $flag FROM ledger WHERE ledgerNo = ?',
       [ledgerNo],
     );
@@ -242,11 +321,14 @@ class DBHelper {
 
     final newValue = previousValue + value;
 
-    await db.rawUpdate('UPDATE ledger SET $flag = ? WHERE ledgerNo = ?', [
+    await executor.rawUpdate('UPDATE ledger SET $flag = ? WHERE ledgerNo = ?', [
       newValue,
       ledgerNo,
     ]);
   }
+
+  // Example: Add txn support to other methods as needed (e.g., insertLedgerEntry would go here if defined)
+  // Future<void> insertLedgerEntry(Map<String, dynamic> entry, String ledgerNo, [Transaction? txn]) async { ... }
 
   // Sanitize any string intended to be used in a SQL identifier
   String _sanitizeIdentifier(String input) {
@@ -316,15 +398,179 @@ class DBHelper {
     final db = await database;
     try {
       final result = await db.rawQuery('''
-        SELECT * FROM item
-        WHERE availableStock > 0
-        ORDER BY availableStock ASC
-        LIMIT 3
-      ''');
+      SELECT * FROM item
+      WHERE availableStock > 0
+      ORDER BY availableStock ASC
+      LIMIT 3
+    ''');
 
+      // Returns empty list if no matching items found (already handled by map.toList())
       return result.map((map) => Item.fromMap(map)).toList();
     } catch (e) {
       print('Error getting top three lowest stock items: $e');
+      return [];
+    }
+  }
+
+  // 4. Function to get total expenses filtered by period (daily, weekly, monthly)
+  Future<Map<String, double>> getExpenseTotals() async {
+    final db = await database;
+    try {
+      final now = DateTime.now();
+
+      // Daily: Today
+      final todayStart = DateTime(now.year, now.month, now.day);
+      final todayEnd = todayStart.add(const Duration(days: 1));
+      final dailyResult = await db.rawQuery(
+        '''
+        SELECT SUM(amount) as total
+        FROM expense_purchases
+        WHERE date >= ? AND date < ?
+      ''',
+        [todayStart.millisecondsSinceEpoch, todayEnd.millisecondsSinceEpoch],
+      );
+
+      // Weekly: Last 7 days
+      final weekStart = now.subtract(const Duration(days: 7));
+      final weekEnd = now;
+      final weeklyResult = await db.rawQuery(
+        '''
+        SELECT SUM(amount) as total
+        FROM expense_purchases
+        WHERE date >= ? AND date <= ?
+      ''',
+        [weekStart.millisecondsSinceEpoch, weekEnd.millisecondsSinceEpoch],
+      );
+
+      // Monthly: Current month
+      final monthStart = DateTime(now.year, now.month, 1);
+      final monthEnd = DateTime(
+        now.year,
+        now.month + 1,
+        0,
+      ).add(const Duration(days: 1));
+      final monthlyResult = await db.rawQuery(
+        '''
+        SELECT SUM(amount) as total
+        FROM expense_purchases
+        WHERE date >= ? AND date < ?
+      ''',
+        [monthStart.millisecondsSinceEpoch, monthEnd.millisecondsSinceEpoch],
+      );
+
+      final dailyTotal = (dailyResult.isNotEmpty
+          ? (dailyResult.first['total'] as num?)?.toDouble() ?? 0.0
+          : 0.0);
+      final weeklyTotal = (weeklyResult.isNotEmpty
+          ? (weeklyResult.first['total'] as num?)?.toDouble() ?? 0.0
+          : 0.0);
+      final monthlyTotal = (monthlyResult.isNotEmpty
+          ? (monthlyResult.first['total'] as num?)?.toDouble() ?? 0.0
+          : 0.0);
+      return {
+        'Daily': dailyTotal,
+        'Weekly': weeklyTotal,
+        'Monthly': monthlyTotal,
+      };
+    } catch (e) {
+      print('Error getting expense totals: $e');
+      return {'daily': 0.0, 'weekly': 0.0, 'monthly': 0.0};
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchExpenseBreakdown() async {
+    final db = await database;
+    final result = await db.rawQuery('''
+            SELECT
+              CASE
+                WHEN category IS NULL OR TRIM(category) = '' THEN 'General'
+                ELSE category
+              END AS category,
+              SUM(amount) AS total
+            FROM expense_purchases
+            GROUP BY
+              CASE
+                WHEN category IS NULL OR TRIM(category) = '' THEN 'General'
+                ELSE category
+              END;
+                ''');
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchSalesTrendBetweenMonths(
+    String startMonth, // e.g., "2025-06"
+    String endMonth, // e.g., "2025-11"
+  ) async {
+    final db = await database;
+    try {
+      // Get all tables starting with 'ledger_entries_'
+      final tables = await db.rawQuery('''
+      SELECT name FROM sqlite_master
+      WHERE type='table' AND name LIKE 'ledger_entries_%'
+    ''');
+
+      if (tables.isEmpty) {
+        print('⚠️ No ledger_entries_ tables found');
+        return [];
+      }
+
+      // Build UNION ALL across all tables
+      final unionQueries = tables
+          .map((t) {
+            final tableName = t['name'];
+            return '''
+        SELECT
+          CASE
+            WHEN date IS NULL THEN NULL
+            WHEN typeof(date) = 'integer' THEN strftime('%Y-%m', date / 1000, 'unixepoch')
+            WHEN trim(date) LIKE '%-%' THEN strftime('%Y-%m', date)
+            WHEN length(trim(date)) >= 11 THEN strftime('%Y-%m', CAST(trim(date) AS integer) / 1000, 'unixepoch')
+            ELSE strftime('%Y-%m', CAST(trim(date) AS integer), 'unixepoch')
+          END AS month,
+          debit
+        FROM $tableName
+        WHERE debit IS NOT NULL AND debit > 0
+      ''';
+          })
+          .join(' UNION ALL ');
+
+      // Main query: month range + total sales from all tables
+      final query =
+          '''
+      WITH RECURSIVE
+        month_range AS (
+          SELECT ? AS month
+          UNION ALL
+          SELECT strftime('%Y-%m', date(month || '-01', '+1 month'))
+          FROM month_range
+          WHERE month < ?
+        ),
+        all_sales AS (
+          $unionQueries
+        ),
+        monthly_sales AS (
+          SELECT month, SUM(debit) AS total_sales
+          FROM all_sales
+          WHERE month BETWEEN ? AND ?
+          GROUP BY month
+        )
+      SELECT
+        mr.month,
+        COALESCE(ms.total_sales, 0) AS total_sales
+      FROM month_range mr
+      LEFT JOIN monthly_sales ms ON mr.month = ms.month
+      ORDER BY mr.month ASC;
+    ''';
+
+      final result = await db.rawQuery(query, [
+        startMonth,
+        endMonth,
+        startMonth,
+        endMonth,
+      ]);
+      return result;
+    } catch (e) {
+      print('❌ Error fetching sales trend between months: $e');
       return [];
     }
   }

@@ -81,6 +81,7 @@ class ItemLedgerEntry {
   final String transactionType;
   final double debit;
   final double credit;
+  final double newStock;
   double balance;
   final DateTime createdAt;
   DateTime? updatedAt;
@@ -94,6 +95,7 @@ class ItemLedgerEntry {
     required this.transactionType,
     required this.debit,
     required this.credit,
+    required this.newStock,
     required this.createdAt,
     this.updatedAt,
     this.balance = 0.0,
@@ -109,6 +111,7 @@ class ItemLedgerEntry {
       'transactionType': transactionType,
       'debit': debit,
       'credit': credit,
+      'newStock': newStock,
       'balance': balance,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt!.millisecondsSinceEpoch,
@@ -125,6 +128,7 @@ class ItemLedgerEntry {
       transactionType: map['transactionType'] as String,
       debit: map['debit'] as double,
       credit: map['credit'] as double,
+      newStock: map['newStock'] as double,
       balance: map['balance'] as double,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updatedAt'] as int),

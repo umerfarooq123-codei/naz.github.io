@@ -23,8 +23,6 @@ class CustomerRepository {
 
   Future<Customer?> getCustomer(String accountId) async {
     final db = await _dbHelper.database;
-
-    // run query
     final result = await db.query(
       'customer',
       where: 'id = ?',
@@ -35,8 +33,32 @@ class CustomerRepository {
     if (result.isNotEmpty) {
       return Customer.fromMap(result.first);
     } else {
-      return null; // no customer found
+      return null;
     }
+  }
+
+  /// ✅ New helper function to get customer's opening balance safely
+  Future<double> getOpeningBalanceForCustomer(String customerName) async {
+    final db = await _dbHelper.database;
+    final result = await db.query(
+      'customer',
+      columns: ['openingBalance'],
+      where: 'name = ?',
+      whereArgs: [customerName.toLowerCase()],
+      limit: 1,
+    );
+
+    if (result.isNotEmpty) {
+      final rawValue = result.first['openingBalance'];
+      if (rawValue == null) return 0.0;
+      if (rawValue is double) return rawValue;
+      if (rawValue is int) return rawValue.toDouble();
+      if (rawValue is String) {
+        return double.tryParse(rawValue) ?? 0.0;
+      }
+    }
+
+    return 0.0;
   }
 
   Future<int> updateCustomer(Customer customer) async {
@@ -57,13 +79,11 @@ class CustomerRepository {
   Future<String> getLastCustNVendNo(String type) async {
     final db = await _dbHelper.database;
 
-    // Decide table & column based on type
     final isCustomer = type.toLowerCase() == 'customer';
     final table = 'customer';
     final column = 'customerNo';
 
     try {
-      // Get last record (highest number)
       final result = await db.query(
         table,
         columns: [column],
@@ -71,33 +91,25 @@ class CustomerRepository {
         limit: 1,
       );
 
-      // Get the last code (like CUST01 or VEN01)
       String lastCode;
       if (result.isNotEmpty) {
         lastCode = result.first[column] as String;
       } else {
-        // No record found → default starting code
         return isCustomer ? 'CUST01' : 'VEN01';
       }
 
-      // Extract numeric part of the last code
       final regex = RegExp(r'(\d+)$');
       final match = regex.firstMatch(lastCode);
-
-      int nextNum = 1; // default
+      int nextNum = 1;
       if (match != null) {
         final numPart = int.tryParse(match.group(1)!) ?? 0;
         nextNum = numPart + 1;
       }
 
-      // Create new code
       final prefix = isCustomer ? 'CUST' : 'VEN';
-      // Format number with 2 digits (01, 02, …)
       final newCode = '$prefix${nextNum.toString().padLeft(2, '0')}';
-
       return newCode;
     } catch (e) {
-      // fallback if something goes wrong
       return isCustomer ? 'CUST01' : 'VEN01';
     }
   }
