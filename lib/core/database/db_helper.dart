@@ -273,8 +273,13 @@ class DBHelper {
         voucherNo TEXT NOT NULL,
         itemId INTEGER,
         itemName TEXT NOT NULL,
+        vendorName TEXT NOT NULL,
         transactionType TEXT NOT NULL,
         debit REAL NOT NULL,
+        pricePerKg REAL NOT NULL,
+        costPrice REAL NOT NULL,
+        sellingPrice REAL NOT NULL,
+        canWeight REAL NOT NULL,
         credit REAL NOT NULL,
         newStock REAL NOT NULL,
         balance REAL NOT NULL,
@@ -510,7 +515,6 @@ class DBHelper {
     ''');
 
       if (tables.isEmpty) {
-        print('⚠️ No ledger_entries_ tables found');
         return [];
       }
 

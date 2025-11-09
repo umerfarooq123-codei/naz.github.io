@@ -51,6 +51,9 @@ class ItemController extends GetxController {
 
   // Add this to track if data needs refresh
   final needsRefresh = true.obs;
+  Future<void> refreshOnReturn() async {
+    await fetchItems(force: true);
+  }
 
   void ensureColumnWidth(String columnName, double width) {
     if (!columnWidths.containsKey(columnName)) {
@@ -270,6 +273,7 @@ class ItemList extends StatelessWidget {
     final itemController = Get.find<ItemController>();
     final custController = Get.find<CustomerController>();
     final isDesktop = MediaQuery.of(context).size.width > 800;
+    final controller = Get.put(ItemLedgerTableController());
     WidgetsBinding.instance.addPostFrameCallback((callBack) {
       itemController.clearSearch();
     });
@@ -548,10 +552,8 @@ class ItemList extends StatelessWidget {
       );
     }
 
+    itemController.fetchItems(force: true);
     return Obx(() {
-      if (itemController.needsRefresh.value) {
-        itemController.fetchItems(force: true);
-      }
       return Stack(
         children: [
           BaseLayout(
@@ -687,18 +689,21 @@ class ItemList extends StatelessWidget {
                                   final refreshedItem = await itemController
                                       .refreshItem(item.id!);
                                   if (context.mounted) {
+                                    controller.currentItem.value =
+                                        refreshedItem;
                                     NavigationHelper.push(
                                       context,
                                       LedgerTablePage(
                                         item: refreshedItem ?? item,
+                                        vendorName: item.vendor,
                                       ),
                                     );
                                   }
                                 },
                                 borderRadius: BorderRadius.circular(12),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: SingleChildScrollView(
+                                child: SingleChildScrollView(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8.0),
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
@@ -729,6 +734,15 @@ class ItemList extends StatelessWidget {
                                                     maxLines: 1,
                                                   ),
                                                   Text(
+                                                    "Vendor: ${item.vendor}",
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.bodySmall,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                  Text(
                                                     'Type: ${item.type}',
                                                     style: Theme.of(
                                                       context,
@@ -738,7 +752,7 @@ class ItemList extends StatelessWidget {
                                                         TextOverflow.ellipsis,
                                                   ),
                                                   Text(
-                                                    'Stock: ${item.availableStock} $unit',
+                                                    'Stock: ${NumberFormat('#,##0').format(item.availableStock)} $unit',
                                                     style: Theme.of(
                                                       context,
                                                     ).textTheme.bodySmall,
@@ -1688,16 +1702,20 @@ class ItemAddEdit extends StatelessWidget {
 
 class LedgerTablePage extends StatelessWidget {
   final Item item;
+  final String vendorName;
 
-  const LedgerTablePage({super.key, required this.item});
+  const LedgerTablePage({
+    super.key,
+    required this.item,
+    required this.vendorName,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final controller = Get.put(ItemLedgerTableController(item));
+    final controller = Get.put(ItemLedgerTableController());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       controller.loadLedgerEntries("${item.name}_${item.id}");
     });
-
     return BaseLayout(
       appBarTitle: "Ledger Entries of: ${item.name}",
       showBackButton: true,
@@ -1895,6 +1913,7 @@ class LedgerTablePage extends StatelessWidget {
                               "${item.name}_${item.id}",
                             ),
                             item: item,
+                            vendorName: vendorName,
                           ),
                         ),
                       );
@@ -1915,6 +1934,7 @@ class LedgerTablePage extends StatelessWidget {
                           controller.filteredLedgerEntries,
                           controller,
                           context,
+                          item,
                         ),
                         controller: controller.dataGridController,
                         columnWidthMode: ColumnWidthMode.fill,
@@ -2006,7 +2026,7 @@ class LedgerTablePage extends StatelessWidget {
         color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
       ),
       child: Text(
-        "$label: ${NumberFormat('#,##0.00', 'en_US').format(value)}",
+        "$label: ${NumberFormat('#,##0', 'en_US').format(value)}",
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
           fontWeight: FontWeight.bold,
           color: Theme.of(context).colorScheme.onSurface,
@@ -2033,18 +2053,19 @@ class LedgerEntryDataSource extends DataGridSource {
   List<DataGridRow> _rows = [];
   final BuildContext context;
   final ItemLedgerTableController controller;
+  final Item item;
 
   LedgerEntryDataSource(
     List<ItemLedgerEntry> entries,
     this.controller,
     this.context,
+    this.item,
   ) {
     _buildRows(entries);
   }
 
   void _buildRows(List<ItemLedgerEntry> entries) {
-    final item = controller.currentItem.value;
-
+    print(item.type.toLowerCase());
     _rows = entries.map((entry) {
       return DataGridRow(
         cells: [
@@ -2053,20 +2074,26 @@ class LedgerEntryDataSource extends DataGridSource {
             columnName: 'date',
             value: DateFormat('dd-MM-yyyy').format(entry.createdAt),
           ),
-          DataGridCell(columnName: 'item', value: item.name),
+          DataGridCell(columnName: 'item', value: entry.itemName),
           DataGridCell(
             columnName: 'priceperkg',
-            value: '${item.pricePerKg}/(Kg/L)',
+            value:
+                '${entry.pricePerKg}/${item.type.toLowerCase() == 'powder' ? 'Kg' : 'L'}',
           ),
           DataGridCell(
             columnName: 'canweight',
-            value: '${item.canWeight}(Kg/L)',
+            value:
+                '${entry.canWeight} ${item.type.toLowerCase() == 'powder' ? 'Kg' : 'L'}',
           ),
           DataGridCell(
             columnName: 'transactionType',
             value: entry.transactionType,
           ),
-          DataGridCell(columnName: 'newStock', value: entry.newStock),
+          DataGridCell(
+            columnName: 'newStock',
+            value:
+                '${NumberFormat('#,##0', 'en_US').format(entry.newStock)} ${item.type.toLowerCase() == 'powder' ? 'Kg' : 'L'}',
+          ),
           DataGridCell(columnName: 'debit', value: entry.debit),
           DataGridCell(columnName: 'credit', value: entry.credit),
           DataGridCell(columnName: 'balance', value: entry),
@@ -2102,7 +2129,7 @@ class LedgerEntryDataSource extends DataGridSource {
                         padding: const EdgeInsets.symmetric(horizontal: 4.0),
                         child: Text(
                           NumberFormat(
-                            '#,##0.00',
+                            '#,##0',
                             'en_US',
                           ).format(cell.value.balance ?? 0),
                           style: Theme.of(context).textTheme.bodySmall!
@@ -2159,12 +2186,7 @@ class LedgerEntryDataSource extends DataGridSource {
                                 borderRadius: BorderRadius.circular(14),
                                 onTap: () => confirmDeleteDialog(
                                   onConfirm: () {
-                                    confirmDeleteDialog(
-                                      onConfirm: () {
-                                        deleteEntry(entry, context);
-                                      },
-                                      context: context,
-                                    );
+                                    deleteEntry(entry, context);
                                   },
                                   context: context,
                                 ),
@@ -2210,7 +2232,7 @@ class LedgerEntryDataSource extends DataGridSource {
             padding: const EdgeInsets.symmetric(horizontal: 6.0),
             child: Text(
               cell.columnName == 'debit' || cell.columnName == 'credit'
-                  ? NumberFormat('#,##0.00', 'en_US').format(cell.value ?? 0)
+                  ? NumberFormat('#,##0', 'en_US').format(cell.value ?? 0)
                   : cell.value.toString(),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall!.copyWith(
@@ -2228,7 +2250,6 @@ class LedgerEntryDataSource extends DataGridSource {
   }
 
   Future<void> printEntry(ItemLedgerEntry entry, int index) async {
-    final item = controller.currentItem.value;
     final customerController = Get.find<CustomerController>();
 
     double currentCans = 0.0;
@@ -2300,7 +2321,6 @@ class LedgerEntryDataSource extends DataGridSource {
   }
 
   void deleteEntry(ItemLedgerEntry entry, BuildContext context) async {
-    final item = controller.currentItem.value;
     try {
       await controller.repo.deleteItemLedgerEntry(
         "${item.name}_${item.id}",
@@ -2324,7 +2344,6 @@ class LedgerEntryDataSource extends DataGridSource {
   }
 
   void editEntry(ItemLedgerEntry entry, BuildContext context) {
-    final item = controller.currentItem.value;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ItemLedgerEntryAddEdit(
@@ -2333,6 +2352,7 @@ class LedgerEntryDataSource extends DataGridSource {
           item: item,
           onEntrySaved: () =>
               controller.loadLedgerEntries("${item.name}_${item.id}"),
+          vendorName: item.vendor,
         ),
       ),
     );
@@ -2348,7 +2368,6 @@ class LedgerEntryDataSource extends DataGridSource {
 }
 
 class ItemLedgerTableController extends GetxController {
-  final Item item;
   final DataGridController dataGridController = DataGridController();
   final fromDateController = TextEditingController();
   final toDateController = TextEditingController();
@@ -2365,53 +2384,37 @@ class ItemLedgerTableController extends GetxController {
   final filteredLedgerEntries = <ItemLedgerEntry>[].obs;
   final RxMap<String, double> columnWidths = <String, double>{}.obs;
   final repo = InventoryRepository();
-
-  // ✅ Add observable for the item so it can be updated
-  late final Rx<Item> currentItem;
-
-  ItemLedgerTableController(Item initialItem) : item = initialItem {
-    // Initialize currentItem as observable
-    currentItem = initialItem.obs;
-  }
+  Rx<Item?> currentItem = Rx<Item?>(null);
 
   @override
   void onInit() {
     super.onInit();
-    final now = DateTime.now();
-    final thirtyDaysAgo = now.subtract(Duration(days: 30));
-    fromDate.value = DateTime(
-      thirtyDaysAgo.year,
-      thirtyDaysAgo.month,
-      thirtyDaysAgo.day,
-    );
-    toDate.value = DateTime(now.year, now.month, now.day);
-    fromDateController.text = DateFormat('dd-MM-yyyy').format(fromDate.value);
-    toDateController.text = DateFormat('dd-MM-yyyy').format(toDate.value);
-    everAll([
-      searchQuery,
-      fromDate,
-      toDate,
-      selectedTransactionType,
-    ], (_) => applyFilters());
-    applyFilters();
-  }
-
-  // ✅ Add method to refresh item data
-  Future<void> refreshItemData() async {
-    try {
-      final updatedItem = await repo.getItemById(item.id!);
-      if (updatedItem != null) {
-        currentItem.value = updatedItem;
-      }
-    } catch (e) {
-      print("❌ Error refreshing item: $e");
+    if (currentItem.value != null) {
+      final now = DateTime.now();
+      final thirtyDaysAgo = now.subtract(Duration(days: 30));
+      fromDate.value = DateTime(
+        thirtyDaysAgo.year,
+        thirtyDaysAgo.month,
+        thirtyDaysAgo.day,
+      );
+      toDate.value = DateTime(now.year, now.month, now.day);
+      fromDateController.text = DateFormat('dd-MM-yyyy').format(fromDate.value);
+      toDateController.text = DateFormat('dd-MM-yyyy').format(toDate.value);
+      everAll([
+        searchQuery,
+        fromDate,
+        toDate,
+        selectedTransactionType,
+      ], (_) => applyFilters());
+      applyFilters();
     }
   }
 
   Future<void> applyFilters({String? ledgerNo}) async {
     isLoading.value = true;
     try {
-      final ledgerId = ledgerNo ?? "${item.name}_${item.id}";
+      final ledgerId =
+          ledgerNo ?? "${currentItem.value!.name}_${currentItem.value!.id}";
       final itemLedgerEntries = await repo.getItemLedgerEntries(ledgerId);
       final fromDateValue = DateTime(
         fromDate.value.year,
@@ -2477,11 +2480,6 @@ class ItemLedgerTableController extends GetxController {
         print("Error applying filters: $e");
       }
       filteredLedgerEntries.clear();
-      Get.snackbar(
-        'Error',
-        'Failed to load entries: $e',
-        snackPosition: SnackPosition.BOTTOM,
-      );
     } finally {
       isLoading.value = false;
     }
@@ -2511,7 +2509,6 @@ class ItemLedgerTableController extends GetxController {
 
   Future<void> loadLedgerEntries(String ledgerNo) async {
     // ✅ Refresh item data when loading entries
-    await refreshItemData();
     await applyFilters(ledgerNo: ledgerNo);
   }
 
@@ -2553,15 +2550,15 @@ class ItemLedgerTableController extends GetxController {
     analysis += "All Entries:\n";
     for (var entry in entries) {
       analysis +=
-          "Voucher: ${entry.voucherNo} | Debit: ${NumberFormat('#,##0.00', 'en_US').format(entry.debit)} | Credit: ${NumberFormat('#,##0.00', 'en_US').format(entry.credit)} | Balance: ${NumberFormat('#,##0.00', 'en_US').format(entry.balance)}\n";
+          "Voucher: ${entry.voucherNo} | Debit: ${NumberFormat('#,##0', 'en_US').format(entry.debit)} | Credit: ${NumberFormat('#,##0', 'en_US').format(entry.credit)} | Balance: ${NumberFormat('#,##0', 'en_US').format(entry.balance)}\n";
     }
     analysis += "\nTotals:\n";
     analysis +=
-        "Total Debit: ${NumberFormat('#,##0.00', 'en_US').format(totalDebit)}\n";
+        "Total Debit: ${NumberFormat('#,##0', 'en_US').format(totalDebit)}\n";
     analysis +=
-        "Total Credit: ${NumberFormat('#,##0.00', 'en_US').format(totalCredit)}\n";
+        "Total Credit: ${NumberFormat('#,##0', 'en_US').format(totalCredit)}\n";
     analysis +=
-        "Net Balance: ${NumberFormat('#,##0.00', 'en_US').format(netBalance)}\n\n";
+        "Net Balance: ${NumberFormat('#,##0', 'en_US').format(netBalance)}\n\n";
     double calculatedNetBalance = entries.fold(
       0,
       (sum, entry) =>
@@ -2569,13 +2566,13 @@ class ItemLedgerTableController extends GetxController {
           (entry.transactionType == "Credit" ? entry.credit : -entry.debit),
     );
     analysis +=
-        "Calculated Net Balance: ${NumberFormat('#,##0.00', 'en_US').format(calculatedNetBalance)}\n";
+        "Calculated Net Balance: ${NumberFormat('#,##0', 'en_US').format(calculatedNetBalance)}\n";
     if ((netBalance - calculatedNetBalance).abs() < 0.01) {
       analysis += "✓ Balance calculation is CORRECT\n";
     } else {
       analysis += "✗ Balance calculation is INCORRECT\n";
       analysis +=
-          "Difference: ${NumberFormat('#,##0.00', 'en_US').format(netBalance - calculatedNetBalance)}\n";
+          "Difference: ${NumberFormat('#,##0', 'en_US').format(netBalance - calculatedNetBalance)}\n";
     }
     calculationAnalysis.value = analysis;
     showCalculationAnalysis.value = true;
@@ -2592,6 +2589,7 @@ class ItemLedgerTableController extends GetxController {
 
 class ItemLedgerEntryAddEdit extends StatelessWidget {
   final String ledgerNo;
+  final String vendorName;
   final ItemLedgerEntry? entry;
   final Item item;
   final VoidCallback? onEntrySaved;
@@ -2599,6 +2597,7 @@ class ItemLedgerEntryAddEdit extends StatelessWidget {
   const ItemLedgerEntryAddEdit({
     super.key,
     required this.ledgerNo,
+    required this.vendorName,
     required this.item,
     this.entry,
     this.onEntrySaved,
@@ -3170,7 +3169,11 @@ class ItemLedgerEntryAddEdit extends StatelessWidget {
                                     if (controller.formKey.currentState!
                                         .validate()) {
                                       final entry = await controller
-                                          .saveLedgerEntry(context, ledgerNo);
+                                          .saveLedgerEntry(
+                                            context,
+                                            ledgerNo,
+                                            vendorName,
+                                          );
                                       if (entry != null) {
                                         if (onEntrySaved != null) {
                                           onEntrySaved!();
@@ -3361,7 +3364,7 @@ class ItemLedgerEntryController extends GetxController {
   bool _isUpdatingDebit = false;
   bool _isUpdatingQty = false;
   final repo = InventoryRepository();
-
+  final itemController = Get.find<ItemController>();
   double get netBalance {
     if (itemLedgerTableController.filteredLedgerEntries.isEmpty) return 0;
     return itemLedgerTableController.filteredLedgerEntries.last.balance;
@@ -3556,30 +3559,31 @@ class ItemLedgerEntryController extends GetxController {
   Future<ItemLedgerEntry?> saveLedgerEntry(
     BuildContext context,
     String ledgerNo,
+    String vendorName,
   ) async {
     if (!formKey.currentState!.validate()) {
-      print("❌ Form validation failed");
+      debugPrint("❌ Form validation failed");
       return null;
     }
 
     try {
-      print("\n🔍 --- saveLedgerEntry START ---");
+      debugPrint("\n🔍 --- saveLedgerEntry START ---");
 
       final itemId = int.tryParse(itemIdController.text);
-      print("📦 Parsed itemId: ${itemIdController.text} → $itemId");
+      debugPrint("📦 Parsed itemId: ${itemIdController.text} → $itemId");
 
       if (itemId == null) {
-        print("❌ Invalid itemId");
+        debugPrint("❌ Invalid itemId");
         Get.snackbar('Error', 'Invalid Item ID');
         return null;
       }
 
       final debit = double.tryParse(debitController.text) ?? 0.0;
       final credit = double.tryParse(creditController.text) ?? 0.0;
-      print("💰 debit=$debit | credit=$credit");
+      debugPrint("💰 debit=$debit | credit=$credit");
 
       if (debit == 0.0 && credit == 0.0) {
-        print("❌ Both debit and credit are 0");
+        debugPrint("❌ Both debit and credit are 0");
         Get.snackbar('Error', 'Debit or Credit must be non-zero');
         return null;
       }
@@ -3590,8 +3594,13 @@ class ItemLedgerEntryController extends GetxController {
         voucherNo: voucherNoController.text,
         itemId: itemId,
         itemName: itemNameController.text,
+        vendorName: vendorName,
         transactionType: transactionType.value,
         debit: debit,
+        canWeight: double.parse(canWeightController.text),
+        costPrice: double.parse(costPriceController.text),
+        sellingPrice: double.parse(sellingPriceController.text),
+        pricePerKg: double.parse(unitPriceController.text),
         credit: credit,
         newStock: double.parse(itemWeightCurrent.text),
         balance: double.tryParse(balanceController.text) ?? 0.0,
@@ -3599,16 +3608,16 @@ class ItemLedgerEntryController extends GetxController {
         updatedAt: updatedAt.value ?? DateTime.now(),
       );
 
-      print("🧾 Created entry object: ${entry.toString()}");
+      debugPrint("🧾 Created entry object: ${entry.toString()}");
 
       final isEdit = entryId.value != 0;
       if (isEdit) {
-        print("✏️ Editing existing entry: ${entryId.value}");
+        debugPrint("✏️ Editing existing entry: ${entryId.value}");
         final oldEntry = await repo.getItemLedgerEntryById(
           ledgerNo,
           entryId.value,
         );
-        print("📄 Old entry: ${oldEntry?.toMap()}");
+        debugPrint("📄 Old entry: ${oldEntry?.toMap()}");
 
         if (oldEntry != null) {
           final reverseType = oldEntry.transactionType == "Debit"
@@ -3618,19 +3627,34 @@ class ItemLedgerEntryController extends GetxController {
               ? oldEntry.debit
               : oldEntry.credit;
 
-          print("🔁 Reversing old entry: type=$reverseType, qty=$oldQty");
+          debugPrint("🔁 Reversing old entry: type=$reverseType, qty=$oldQty");
+
+          // Reverse stock
           await repo.updateItemStock(
             itemId: itemId,
             transactionType: reverseType,
             quantity: oldQty,
           );
+          // ✅ Always reverse vendor ledger entry (for tracking)
+          final oldAmount = oldEntry.transactionType == "Credit"
+              ? oldEntry.credit
+              : oldEntry.debit;
+
+          debugPrint("🔄 Reversing vendor ledger entry");
+          await repo.updateVendorLedger(
+            vendorName: currentItem.vendor,
+            transactionType: reverseType,
+            amount: oldAmount,
+            voucherNo: oldEntry.voucherNo,
+            date: oldEntry.createdAt,
+          );
         } else {
-          print("❌ Could not find old entry");
+          debugPrint("❌ Could not find old entry");
           Get.snackbar('Error', 'Existing entry not found');
           return null;
         }
       } else {
-        print("🆕 Creating new entry for ledgerNo: $ledgerNo");
+        debugPrint("🆕 Creating new entry for ledgerNo: $ledgerNo");
 
         final item = Item(
           id: itemId,
@@ -3644,22 +3668,22 @@ class ItemLedgerEntryController extends GetxController {
           canWeight: double.tryParse(canWeightController.text) ?? 0.0,
         );
 
-        print("📦 Updating item before stock change: ${item.toMap()}");
+        debugPrint("📦 Updating item before stock change: ${item.toMap()}");
         final updateResult = await repo.updateItem(item);
-        print("✅ Item update result: $updateResult");
+        debugPrint("✅ Item update result: $updateResult");
       }
 
       final result = await repo.insertItemLedgerEntry(ledgerNo, entry);
-      print("📘 Ledger entry inserted, result=$result");
+      debugPrint("📘 Ledger entry inserted, result=$result");
 
       if (result <= 0) {
-        print("❌ insertItemLedgerEntry failed with result=$result");
+        debugPrint("❌ insertItemLedgerEntry failed with result=$result");
         Get.snackbar('Error', 'Failed to save ledger entry');
         return null;
       }
 
       final qty = double.parse(itemWeightCurrent.text);
-      print(
+      debugPrint(
         "🧮 Calling updateItemStock(): itemId=$itemId | type=${entry.transactionType} | qty=$qty",
       );
 
@@ -3668,10 +3692,23 @@ class ItemLedgerEntryController extends GetxController {
         transactionType: entry.transactionType,
         quantity: qty,
       );
-      print("📊 updateItemStock() result: $stockResult");
+      debugPrint("📊 updateItemStock() result: $stockResult");
+
+      // ✅ FIXED: Only update vendor balance for Credit transactions
+      final amount = entry.transactionType == "Credit" ? credit : debit;
+
+      // ✅ Always create vendor ledger entry (for tracking both credit and cash purchases)
+      debugPrint("📒 Creating vendor ledger entry");
+      await repo.updateVendorLedger(
+        vendorName: currentItem.vendor,
+        transactionType: entry.transactionType,
+        amount: amount,
+        voucherNo: entry.voucherNo,
+        date: entry.createdAt,
+      );
 
       final updatedItem = await repo.getItemById(itemId);
-      print("🔍 Updated item after stock change: ${updatedItem?.toMap()}");
+      debugPrint("🔍 Updated item after stock change: ${updatedItem?.toMap()}");
 
       if (updatedItem != null) {
         unitPriceController.text = updatedItem.pricePerKg.toStringAsFixed(2);
@@ -3680,10 +3717,11 @@ class ItemLedgerEntryController extends GetxController {
         _updateSellingPrice();
       }
 
-      print("🔚 --- saveLedgerEntry END ---\n");
+      debugPrint("🔚 --- saveLedgerEntry END ---\n");
+      itemController.refreshOnReturn();
       return entry;
     } catch (e, st) {
-      print("❌ Exception in saveLedgerEntry: $e\n$st");
+      debugPrint("❌ Exception in saveLedgerEntry: $e\n$st");
       Get.snackbar('Error', 'Error saving entry: $e');
       return null;
     }

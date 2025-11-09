@@ -37,25 +37,37 @@ class CustomerRepository {
     }
   }
 
-  /// ✅ New helper function to get customer's opening balance safely
+  /// ✅ FIXED: Get customer's opening balance with case-insensitive search
   Future<double> getOpeningBalanceForCustomer(String customerName) async {
     final db = await _dbHelper.database;
-    final result = await db.query(
-      'customer',
-      columns: ['openingBalance'],
-      where: 'name = ?',
-      whereArgs: [customerName.toLowerCase()],
-      limit: 1,
+
+    // Use UPPER() for case-insensitive comparison
+    final result = await db.rawQuery(
+      '''
+      SELECT openingBalance
+      FROM customer
+      WHERE UPPER(name) = UPPER(?)
+      LIMIT 1
+      ''',
+      [customerName],
     );
 
     if (result.isNotEmpty) {
       final rawValue = result.first['openingBalance'];
-      if (rawValue == null) return 0.0;
-      if (rawValue is double) return rawValue;
-      if (rawValue is int) return rawValue.toDouble();
-      if (rawValue is String) {
-        return double.tryParse(rawValue) ?? 0.0;
+
+      if (rawValue == null) {
+        return 0.0;
       }
+
+      double parsedValue = 0.0;
+      if (rawValue is double) {
+        parsedValue = rawValue;
+      } else if (rawValue is int) {
+        parsedValue = rawValue.toDouble();
+      } else if (rawValue is String) {
+        parsedValue = double.tryParse(rawValue) ?? 0.0;
+      }
+      return parsedValue;
     }
 
     return 0.0;
@@ -112,5 +124,25 @@ class CustomerRepository {
     } catch (e) {
       return isCustomer ? 'CUST01' : 'VEN01';
     }
+  }
+
+  /// ✅ NEW: Get vendor by exact name match (case-insensitive)
+  Future<Customer?> getVendorByName(String vendorName) async {
+    final db = await _dbHelper.database;
+
+    final result = await db.rawQuery(
+      '''
+      SELECT *
+      FROM customer
+      WHERE UPPER(name) = UPPER(?) AND type = 'Vendor'
+      LIMIT 1
+      ''',
+      [vendorName],
+    );
+
+    if (result.isNotEmpty) {
+      return Customer.fromMap(result.first);
+    }
+    return null;
   }
 }

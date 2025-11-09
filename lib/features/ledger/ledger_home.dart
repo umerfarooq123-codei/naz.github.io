@@ -307,8 +307,8 @@ class LedgerHome extends StatelessWidget {
                                                           snapshot.data != 0 ||
                                                                   snapshot.data !=
                                                                       0.0
-                                                              ? "Opening Bal: ${NumberFormat('#,##0.00').format(snapshot.data)}"
-                                                              : 'Debit: ${NumberFormat('#,##0.00').format(ledger.debit)}',
+                                                              ? "Opening Bal: ${NumberFormat('#,##0').format(snapshot.data)}"
+                                                              : 'Debit: ${NumberFormat('#,##0').format(ledger.debit)}',
                                                           ledgerController
                                                               .searchQuery
                                                               .value,
@@ -317,7 +317,7 @@ class LedgerHome extends StatelessWidget {
                                                     ),
                                                     const SizedBox(height: 3),
                                                     buildHighlightedText(
-                                                      'Credit: ${NumberFormat('#,##0.00').format(ledger.credit)}',
+                                                      'Credit: ${NumberFormat('#,##0').format(ledger.credit)}',
                                                       ledgerController
                                                           .searchQuery
                                                           .value,
@@ -1515,7 +1515,7 @@ class LedgerTablePage extends StatelessWidget {
         ),
       ),
       child: Text(
-        "$label: ${NumberFormat('#,##0.00', 'en_US').format(value)}",
+        "$label: ${NumberFormat('#,##0', 'en_US').format(value)}",
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
           fontWeight: FontWeight.w600,
           color: isDark
@@ -1749,7 +1749,7 @@ class LedgerEntryDataSource extends DataGridSource {
                         padding: const EdgeInsets.symmetric(horizontal: 4.0),
                         child: Text(
                           NumberFormat(
-                            '#,##0.00',
+                            '#,##0',
                             'en_US',
                           ).format(cell.value.balance ?? 0),
                           style: Theme.of(context).textTheme.bodyMedium!
@@ -1851,7 +1851,7 @@ class LedgerEntryDataSource extends DataGridSource {
             padding: const EdgeInsets.symmetric(horizontal: 6.0),
             child: Text(
               cell.columnName == 'debit' || cell.columnName == 'credit'
-                  ? NumberFormat('#,##0.00', 'en_US').format(cell.value ?? 0)
+                  ? NumberFormat('#,##0', 'en_US').format(cell.value ?? 0)
                   : cell.value.toString(),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium!.copyWith(
@@ -2153,16 +2153,16 @@ class LedgerTableController extends GetxController {
     analysis += "All Entries:\n";
     for (var entry in entries) {
       analysis +=
-          "Voucher: ${entry.voucherNo} | Debit: ${NumberFormat('#,##0.00', 'en_US').format(entry.debit)} | Credit: ${NumberFormat('#,##0.00', 'en_US').format(entry.credit)} | Balance: ${NumberFormat('#,##0.00', 'en_US').format(entry.balance)}\n";
+          "Voucher: ${entry.voucherNo} | Debit: ${NumberFormat('#,##0', 'en_US').format(entry.debit)} | Credit: ${NumberFormat('#,##0', 'en_US').format(entry.credit)} | Balance: ${NumberFormat('#,##0', 'en_US').format(entry.balance)}\n";
     }
 
     analysis += "\nTotals:\n";
     analysis +=
-        "Total Debit: ${NumberFormat('#,##0.00', 'en_US').format(totalDebit)}\n";
+        "Total Debit: ${NumberFormat('#,##0', 'en_US').format(totalDebit)}\n";
     analysis +=
-        "Total Credit: ${NumberFormat('#,##0.00', 'en_US').format(totalCredit)}\n";
+        "Total Credit: ${NumberFormat('#,##0', 'en_US').format(totalCredit)}\n";
     analysis +=
-        "Net Balance: ${NumberFormat('#,##0.00', 'en_US').format(netBalance)}\n\n";
+        "Net Balance: ${NumberFormat('#,##0', 'en_US').format(netBalance)}\n\n";
 
     // Calculate expected net balance (credits only)
     double calculatedNetBalance = entries.fold(
@@ -2170,7 +2170,7 @@ class LedgerTableController extends GetxController {
       (sum, entry) => sum + entry.credit,
     );
     analysis +=
-        "Calculated Net Balance (Sum of Credits): ${NumberFormat('#,##0.00', 'en_US').format(calculatedNetBalance)}\n";
+        "Calculated Net Balance (Sum of Credits): ${NumberFormat('#,##0', 'en_US').format(calculatedNetBalance)}\n";
 
     if ((netBalance - calculatedNetBalance).abs() < 0.01) {
       // Allow for floating point precision
@@ -2178,7 +2178,7 @@ class LedgerTableController extends GetxController {
     } else {
       analysis += "✗ Balance calculation is INCORRECT\n";
       analysis +=
-          "Difference: ${NumberFormat('#,##0.00', 'en_US').format(netBalance - calculatedNetBalance)}\n";
+          "Difference: ${NumberFormat('#,##0', 'en_US').format(netBalance - calculatedNetBalance)}\n";
     }
 
     calculationAnalysis.value = analysis;
@@ -5308,7 +5308,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
 class EntryFormData {
   final GlobalKey<FormState> formKey = GlobalKey<FormState>();
   LedgerEntry? originalEntry;
-  final numberFormat = NumberFormat('#,##0.00', 'en_US');
+  final numberFormat = NumberFormat('#,##0', 'en_US');
 
   // Existing controllers
   late TextEditingController ledgerNoController;

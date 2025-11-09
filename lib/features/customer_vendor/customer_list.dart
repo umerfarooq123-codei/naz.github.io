@@ -85,7 +85,10 @@ class CustomerList extends StatelessWidget {
                     ),
                   ),
                   child: FutureBuilder<DebitCreditSummary>(
-                    future: controller.getCustomerDebitCredit(customer.name),
+                    future: controller.getCustomerDebitCredit(
+                      customer.name,
+                      customer.type,
+                    ),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const SizedBox(height: 20, width: 20);
@@ -120,7 +123,7 @@ class CustomerList extends StatelessWidget {
                               }
                               return snapshot.data != 0 || snapshot.data != 0.0
                                   ? Text(
-                                      "Opening Balance: ${NumberFormat('#,##0.00').format(snapshot.data)}",
+                                      "Opening Balance: ${NumberFormat('#,##0').format(snapshot.data)}",
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodySmall!
@@ -306,7 +309,7 @@ class CustomerList extends StatelessWidget {
                                       crossAxisCount: gridAxisCount,
                                       crossAxisSpacing: 10,
                                       mainAxisSpacing: 10,
-                                      childAspectRatio: 2.35 / 1.5,
+                                      childAspectRatio: 2.35 / 1.20,
                                     ),
                                 itemCount: controller.filteredCustomers.length,
                                 itemBuilder: (context, index) {
@@ -401,6 +404,7 @@ class CustomerList extends StatelessWidget {
                                                         future: controller
                                                             .getCustomerDebitCredit(
                                                               customer.name,
+                                                              customer.type,
                                                             ),
                                                         builder: (context, snapshot) {
                                                           if (snapshot
@@ -470,7 +474,7 @@ class CustomerList extends StatelessWidget {
                                                                               snapshot.data !=
                                                                                   0.0
                                                                           ? Text(
-                                                                              "Bal: ${NumberFormat('#,##0.00').format(snapshot.data)}",
+                                                                              "Opening Bal: ${NumberFormat('#,##0').format(snapshot.data)}",
                                                                               style:
                                                                                   Theme.of(
                                                                                     context,
@@ -734,32 +738,47 @@ class CustomerController extends GetxController {
     );
   }
 
-  Future<DebitCreditSummary> getCustomerDebitCredit(String customerName) async {
-    final entries = getLedgerEntriesForCustomer(customerName);
+  /// ✅ FIXED: Get customer/vendor debit/credit with proper vendor matching
+  Future<DebitCreditSummary> getCustomerDebitCredit(
+    String customerName,
+    String type,
+  ) async {
     double debit = 0.0;
     double credit = 0.0;
 
-    for (final entry in entries) {
-      debit += entry.debit;
-      credit += entry.credit;
-    }
-
-    double openingBalance = 0.0;
     try {
-      openingBalance = await repo.getOpeningBalanceForCustomer(customerName);
+      if (type != 'Vendor') {
+        // For customers - use regular ledger entries
+        final entries = getLedgerEntriesForCustomer(customerName);
+
+        for (final entry in entries) {
+          debit += entry.debit;
+          credit += entry.credit;
+        }
+      } else {
+        final entries = await LedgerRepository().getLedgerEntriesByVendor(
+          customerName,
+        );
+
+        for (final entry in entries) {
+          debit += entry.debit;
+          credit += entry.credit;
+        }
+      }
+
+      final formatter = NumberFormat('#,##0');
+      final debitFormatted = formatter.format(debit);
+      final creditFormatted = formatter.format(credit);
+
+      return DebitCreditSummary(debit: debitFormatted, credit: creditFormatted);
     } catch (e) {
-      openingBalance = 0.0;
+      // Return zero values on error
+      final formatter = NumberFormat('#,##0');
+      return DebitCreditSummary(
+        debit: formatter.format(0.0),
+        credit: formatter.format(0.0),
+      );
     }
-
-    if (openingBalance > 0) {
-      credit += openingBalance;
-    }
-
-    final formatter = NumberFormat('#,##0.00');
-    final debitFormatted = formatter.format(debit);
-    final creditFormatted = formatter.format(credit);
-
-    return DebitCreditSummary(debit: debitFormatted, credit: creditFormatted);
   }
 
   // Update fetchLedgerEntriesForAllCustomers to use customer name
@@ -815,7 +834,6 @@ class CustomerController extends GetxController {
         type: type.value,
         openingBalance: openingBalance,
       );
-
       if (customer == null) {
         await repo.insertCustomer(newCustomer);
       } else {

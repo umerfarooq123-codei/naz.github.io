@@ -1,3 +1,5 @@
+import 'package:ledger_master/core/models/item.dart';
+
 import '../../core/database/db_helper.dart';
 import '../../core/models/ledger.dart';
 
@@ -192,6 +194,41 @@ class LedgerRepository {
         );
 
         final entries = result.map((e) => LedgerEntry.fromMap(e)).toList();
+        allEntries.addAll(entries);
+      }
+
+      return allEntries;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<List<ItemLedgerEntry>> getLedgerEntriesByVendor(
+    String vendorName,
+  ) async {
+    final db = await _dbHelper.database;
+    final List<ItemLedgerEntry> allEntries = [];
+
+    try {
+      // Get all ledger tables
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'item_ledger_entries_%'",
+      );
+
+      for (final table in tables) {
+        final tableName = table['name'] as String;
+
+        // Use UPPER() for case-insensitive search
+        final result = await db.rawQuery(
+          '''
+        SELECT * FROM $tableName
+        WHERE UPPER(vendorName) = UPPER(?)
+        ORDER BY createdAt DESC
+          ''',
+          [vendorName],
+        );
+
+        final entries = result.map((e) => ItemLedgerEntry.fromMap(e)).toList();
         allEntries.addAll(entries);
       }
 

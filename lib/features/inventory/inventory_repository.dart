@@ -60,8 +60,7 @@ class InventoryRepository {
     final item = Item.fromMap(itemMap.first);
     print("📦 Current availableStock: ${item.availableStock}");
 
-    // ✅ CORRECTED: Every entry ADDS stock (purchase/incoming)
-    // Transaction type (Debit/Credit) is only for payment tracking
+    // All entries ADD stock (purchase/incoming)
     double newStock = item.availableStock + quantity;
 
     print(
@@ -81,6 +80,140 @@ class InventoryRepository {
     print("🔚 --- updateItemStock END ---\n");
 
     return result;
+  }
+
+  /// ✅ NEW: Update vendor ledger entries (if ledger table exists for vendor)
+  Future<void> updateVendorLedger({
+    required String vendorName,
+    required String transactionType,
+    required double amount,
+    required String voucherNo,
+    required DateTime date,
+  }) async {
+    final db = await _dbHelper.database;
+
+    print("\n📒 --- updateVendorLedger START ---");
+    print("👤 Vendor: $vendorName | Type: $transactionType | Amount: $amount");
+
+    try {
+      // Get vendor to find their ledger
+      final vendorResult = await db.query(
+        'customer',
+        where: 'LOWER(name) = ?',
+        whereArgs: [vendorName.toLowerCase()],
+        limit: 1,
+      );
+
+      if (vendorResult.isEmpty) {
+        print("⚠️ Vendor not found");
+        return;
+      }
+
+      final vendorMap = vendorResult.first;
+      final customerNo = vendorMap['customerNo'] as String?;
+
+      if (customerNo == null) {
+        print("⚠️ Vendor has no customerNo");
+        return;
+      }
+
+      // Check if ledger exists for this vendor
+      final ledgerResult = await db.query(
+        'ledger',
+        where: 'accountName = ? OR ledgerNo LIKE ?',
+        whereArgs: [vendorName, '%$customerNo%'],
+        limit: 1,
+      );
+
+      if (ledgerResult.isEmpty) {
+        print("ℹ️ No ledger found for vendor - skipping ledger entry");
+        return;
+      }
+
+      final ledgerNo = ledgerResult.first['ledgerNo'] as String;
+      print("📘 Found ledger: $ledgerNo");
+
+      // Create ledger entry table if not exists
+      await _dbHelper.createLedgerEntryTable(ledgerNo);
+
+      final safeLedgerNo = sanitizeIdentifier(ledgerNo);
+      final tableName = 'ledger_entries_$safeLedgerNo';
+
+      // Get current balance from last entry
+      final lastEntry = await db.query(tableName, orderBy: 'id DESC', limit: 1);
+
+      double previousBalance = 0.0;
+      if (lastEntry.isNotEmpty) {
+        final balanceValue = lastEntry.first['balance'];
+        if (balanceValue is double) {
+          previousBalance = balanceValue;
+        } else if (balanceValue is int) {
+          previousBalance = balanceValue.toDouble();
+        } else if (balanceValue is String) {
+          previousBalance = double.tryParse(balanceValue) ?? 0.0;
+        }
+      }
+
+      print("📊 Previous ledger balance: $previousBalance");
+
+      // Calculate new balance
+      double debit = 0.0;
+      double credit = 0.0;
+      double newBalance = previousBalance;
+
+      if (transactionType == "Credit") {
+        credit = amount;
+        newBalance = previousBalance + credit;
+        print("➕ Adding credit: $previousBalance + $credit = $newBalance");
+      } else if (transactionType == "Debit") {
+        debit = amount;
+        newBalance = previousBalance + debit;
+        print("➕ Adding debit: $previousBalance + $debit = $newBalance");
+      }
+
+      // Insert ledger entry
+      final entry = {
+        'ledgerNo': ledgerNo,
+        'voucherNo': voucherNo,
+        'accountId': vendorMap['id'],
+        'accountName': vendorName,
+        'date': date.toIso8601String(),
+        'transactionType': transactionType,
+        'debit': debit,
+        'credit': credit,
+        'balance': newBalance,
+        'status': 'completed',
+        'description': 'Item Purchase - $voucherNo',
+        'referenceNo': voucherNo,
+        'category': 'purchase',
+        'tags': 'inventory,purchase',
+        'createdBy': 'system',
+        'createdAt': DateTime.now().toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      };
+
+      await db.insert(tableName, entry);
+      print(
+        "✅ Ledger entry created: debit=$debit, credit=$credit, balance=$newBalance",
+      );
+
+      // Update main ledger table totals
+      await db.rawUpdate(
+        '''
+        UPDATE ledger
+        SET debit = debit + ?,
+            credit = credit + ?,
+            updatedAt = ?
+        WHERE ledgerNo = ?
+      ''',
+        [debit, credit, DateTime.now().toIso8601String(), ledgerNo],
+      );
+
+      print("🔚 --- updateVendorLedger END ---\n");
+    } catch (e, st) {
+      print("❌ Error updating vendor ledger: $e");
+      print(st);
+    }
   }
 
   Future<int> deleteItem(int id) async {
@@ -146,8 +279,13 @@ class InventoryRepository {
           voucherNo TEXT NOT NULL,
           itemId INTEGER,
           itemName TEXT NOT NULL,
+          vendorName TEXT NOT NULL,
           transactionType TEXT NOT NULL,
           debit REAL NOT NULL,
+          pricePerKg REAL NOT NULL,
+          costPrice REAL NOT NULL,
+          sellingPrice REAL NOT NULL,
+          canWeight REAL NOT NULL,
           credit REAL NOT NULL,
           newStock REAL NOT NULL,
           balance REAL NOT NULL,
@@ -220,7 +358,6 @@ class InventoryRepository {
 
     print("\n🗑️ === DELETE ENTRY START ===");
 
-    // Get entry before deleting
     final entryRows = await db.query(
       tableName,
       where: 'id = ?',
@@ -234,10 +371,33 @@ class InventoryRepository {
     final entry = ItemLedgerEntry.fromMap(entryRows.first);
     print("📄 Deleting entry: ${entry.toMap()}");
 
-    // ✅ CORRECTED: Since all entries ADD stock, deleting means SUBTRACTING
-    // Use newStock field which contains the quantity that was added
-    final qtyToRemove = entry.newStock;
+    final item = await getItemById(entry.itemId!);
+    if (item == null) {
+      print("❌ Item not found for entry");
+      return 0;
+    }
 
+    // ✅ Reverse vendor balance
+    final reverseType = entry.transactionType == "Credit" ? "Debit" : "Credit";
+    final amount = entry.transactionType == "Credit"
+        ? entry.credit
+        : entry.debit;
+
+    print(
+      "🔄 Reversing vendor balance: $reverseType $amount for ${item.vendor}",
+    );
+
+    // ✅ Reverse vendor ledger entry
+    await updateVendorLedger(
+      vendorName: item.vendor,
+      transactionType: reverseType,
+      amount: amount,
+      voucherNo: entry.voucherNo,
+      date: entry.createdAt,
+    );
+
+    // Remove stock
+    final qtyToRemove = entry.newStock;
     print("🔄 Removing $qtyToRemove from stock");
 
     final itemMap = await db.query(
@@ -246,8 +406,8 @@ class InventoryRepository {
       whereArgs: [entry.itemId],
     );
     if (itemMap.isNotEmpty) {
-      final item = Item.fromMap(itemMap.first);
-      double newStock = item.availableStock - qtyToRemove;
+      final currentItem = Item.fromMap(itemMap.first);
+      double newStock = currentItem.availableStock - qtyToRemove;
       if (newStock < 0) newStock = 0;
 
       await db.update(
@@ -256,10 +416,9 @@ class InventoryRepository {
         where: 'id = ?',
         whereArgs: [entry.itemId],
       );
-      print("📦 Stock updated: ${item.availableStock} → $newStock");
+      print("📦 Stock updated: ${currentItem.availableStock} → $newStock");
     }
 
-    // Delete entry
     final deleteResult = await db.delete(
       tableName,
       where: 'id = ?',
@@ -267,7 +426,6 @@ class InventoryRepository {
     );
     print("🗑️ Deleted | rows=$deleteResult");
 
-    // Update item fields
     await updateItemFieldsAfterDeletion(ledgerNo: ledgerNo);
 
     print("🔚 === DELETE ENTRY END ===\n");
@@ -282,7 +440,6 @@ class InventoryRepository {
     print("\n🔄 === UPDATE FIELDS AFTER DELETION START ===");
 
     try {
-      // Extract itemId
       final idMatch = RegExp(r'_(\d+)$').firstMatch(ledgerNo);
       if (idMatch == null) {
         print("❌ Can't extract itemId from $ledgerNo");
@@ -291,7 +448,6 @@ class InventoryRepository {
       final itemId = int.parse(idMatch.group(1)!);
       print("🆔 ItemId: $itemId");
 
-      // Check table exists
       final tableCheck = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         [tableName],
@@ -301,7 +457,6 @@ class InventoryRepository {
         return;
       }
 
-      // Get remaining entries
       final entries = await db.query(
         tableName,
         where: 'itemId = ?',
@@ -311,7 +466,6 @@ class InventoryRepository {
 
       print("📊 Remaining entries: ${entries.length}");
 
-      // CASE 1: No entries → Reset all 5 fields to 0
       if (entries.isEmpty) {
         print("🟡 NO ENTRIES → Resetting 5 fields to 0");
 
@@ -338,13 +492,8 @@ class InventoryRepository {
         return;
       }
 
-      // CASE 2: Entries exist → Update from last entry
-      print("🟢 ENTRIES EXIST → Updating from last entry");
+      print("🟢 ENTRIES EXIST → Preserving pricing fields");
 
-      final lastEntry = ItemLedgerEntry.fromMap(entries.last);
-      print("📌 Last entry: id=${lastEntry.id}, balance=${lastEntry.balance}");
-
-      // Get current item
       final itemData = await db.query(
         'item',
         where: 'id = ?',
@@ -356,12 +505,10 @@ class InventoryRepository {
       }
       final currentItem = Item.fromMap(itemData.first);
 
-      // Update: availableStock from current item (already updated by stock removal)
-      // Pricing fields should remain from current item
       await db.update(
         'item',
         {
-          'availableStock': currentItem.availableStock, // Already correct
+          'availableStock': currentItem.availableStock,
           'pricePerKg': currentItem.pricePerKg,
           'costPrice': currentItem.costPrice,
           'sellingPrice': currentItem.sellingPrice,
