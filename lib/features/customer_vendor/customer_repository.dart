@@ -1,3 +1,4 @@
+import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../core/database/db_helper.dart';
@@ -144,5 +145,157 @@ class CustomerRepository {
       return Customer.fromMap(result.first);
     }
     return null;
+  }
+}
+
+class CustomerLedgerRepository {
+  final DBHelper _dbHelper = DBHelper();
+
+  String _sanitizeIdentifier(String input) =>
+      input.replaceAll(RegExp(r'[^A-Za-z0-9_]'), '_');
+
+  String _tableNameFromCustomerName(String customerName, int customerId) {
+    final safeName = _sanitizeIdentifier(customerName);
+    return 'customer_ledger_entries_${safeName}_$customerId';
+  }
+
+  Future<void> createCustomerLedgerTable(
+    String customerName,
+    int customerId,
+  ) async {
+    final db = await _dbHelper.database;
+    final tableName = _tableNameFromCustomerName(customerName, customerId);
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableName (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        voucherNo TEXT NOT NULL,
+        date TEXT NOT NULL,
+        customerName TEXT NOT NULL,
+        description TEXT,
+        debit REAL NOT NULL DEFAULT 0.0,
+        credit REAL NOT NULL DEFAULT 0.0,
+        balance REAL NOT NULL DEFAULT 0.0,
+        transactionType TEXT NOT NULL,
+        paymentMethod TEXT,
+        chequeNo TEXT,
+        chequeAmount REAL,
+        chequeDate TEXT,
+        bankName TEXT,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<int> insertCustomerLedgerEntry(
+    CustomerLedgerEntry entry,
+    String customerName,
+    int customerId,
+  ) async {
+    final db = await _dbHelper.database;
+    final tableName = _tableNameFromCustomerName(customerName, customerId);
+
+    await createCustomerLedgerTable(customerName, customerId);
+    return await db.insert(tableName, entry.toMap());
+  }
+
+  Future<List<CustomerLedgerEntry>> getCustomerLedgerEntries(
+    String customerName,
+    int customerId,
+  ) async {
+    final db = await _dbHelper.database;
+    final tableName = _tableNameFromCustomerName(customerName, customerId);
+
+    try {
+      await createCustomerLedgerTable(customerName, customerId);
+      final result = await db.query(tableName, orderBy: 'date ASC, id ASC');
+      return result.map((e) => CustomerLedgerEntry.fromMap(e)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<int> updateCustomerLedgerEntry(
+    CustomerLedgerEntry entry,
+    String customerName,
+    int customerId,
+  ) async {
+    final db = await _dbHelper.database;
+    final tableName = _tableNameFromCustomerName(customerName, customerId);
+
+    return await db.update(
+      tableName,
+      entry.toMap(),
+      where: 'id = ?',
+      whereArgs: [entry.id],
+    );
+  }
+
+  Future<DebitCreditSummary> fetchTotalDebitAndCredit(
+    String customerName,
+    int customerId,
+  ) async {
+    final db = await _dbHelper.database;
+    final tableName = _tableNameFromCustomerName(customerName, customerId);
+
+    try {
+      await createCustomerLedgerTable(customerName, customerId);
+
+      final result = await db.rawQuery('''
+      SELECT
+        SUM(debit) AS totalDebit,
+        SUM(credit) AS totalCredit
+      FROM $tableName
+    ''');
+
+      final row = result.first;
+
+      final totalDebit = (row['totalDebit'] ?? 0).toString();
+      final totalCredit = (row['totalCredit'] ?? 0).toString();
+
+      return DebitCreditSummary(debit: totalDebit, credit: totalCredit);
+    } catch (e) {
+      return DebitCreditSummary(debit: "0", credit: "0");
+    }
+  }
+
+  Future<int> deleteCustomerLedgerEntry(
+    int entryId,
+    String customerName,
+    int customerId,
+  ) async {
+    final db = await _dbHelper.database;
+    final tableName = _tableNameFromCustomerName(customerName, customerId);
+
+    return await db.delete(tableName, where: 'id = ?', whereArgs: [entryId]);
+  }
+
+  Future<String> getLastVoucherNo(String customerName, int customerId) async {
+    final db = await _dbHelper.database;
+    final tableName = _tableNameFromCustomerName(customerName, customerId);
+
+    try {
+      await createCustomerLedgerTable(customerName, customerId);
+      final result = await db.query(
+        tableName,
+        columns: ['voucherNo'],
+        orderBy: 'voucherNo DESC',
+        limit: 1,
+      );
+
+      if (result.isNotEmpty) {
+        final lastVoucherNo = result.first['voucherNo'] as String;
+        final regex = RegExp(r'(\d+)$');
+        final match = regex.firstMatch(lastVoucherNo);
+
+        if (match != null) {
+          final num = int.parse(match.group(1)!);
+          return 'VN${(num + 1).toString().padLeft(4, '0')}';
+        }
+      }
+      return 'VN0001';
+    } catch (e) {
+      return 'VN0001';
+    }
   }
 }

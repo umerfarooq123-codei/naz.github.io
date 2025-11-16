@@ -369,29 +369,46 @@ class DBHelper {
   // 2. Function to count all Receivables
   Future<double> getTotalReceivables() async {
     final db = await database;
+
     try {
-      // Get all ledger tables
+      // Fetch all ledger tables
       final tables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'ledger_entries_%'",
       );
 
-      double totalReceivables = 0.0;
+      double totalCredit = 0.0;
+      double totalDebit = 0.0;
 
-      // Sum balances from all ledger entry tables
       for (final table in tables) {
         final tableName = table['name'] as String;
-        final result = await db.rawQuery('''
-          SELECT SUM(credit) as total_balance
-          FROM $tableName
-          WHERE credit > 0
-        ''');
 
-        if (result.isNotEmpty) {
-          final balance = result.first['total_balance'] as double?;
-          totalReceivables += balance ?? 0.0;
+        // --- FETCH TOTAL CREDIT ---
+        final creditResult = await db.rawQuery('''
+        SELECT SUM(credit) AS total_credit
+        FROM $tableName
+        WHERE credit > 0
+      ''');
+
+        if (creditResult.isNotEmpty) {
+          final credit = creditResult.first['total_credit'] as num?;
+          totalCredit += (credit ?? 0).toDouble();
+        }
+
+        // --- FETCH TOTAL DEBIT ---
+        final debitResult = await db.rawQuery('''
+        SELECT SUM(debit) AS total_debit
+        FROM $tableName
+        WHERE debit > 0
+      ''');
+
+        if (debitResult.isNotEmpty) {
+          final debit = debitResult.first['total_debit'] as num?;
+          totalDebit += (debit ?? 0).toDouble();
         }
       }
-      return totalReceivables;
+
+      // Return Credit − Debit (Receivables)
+      return totalCredit - totalDebit;
     } catch (e) {
       print('Error getting total receivables: $e');
       return 0.0;

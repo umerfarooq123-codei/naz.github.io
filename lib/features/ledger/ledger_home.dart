@@ -281,6 +281,7 @@ class LedgerHome extends StatelessWidget {
                                                           .value,
                                                     ),
                                                     const SizedBox(height: 3),
+
                                                     buildHighlightedText(
                                                       'Type: ${ledger.transactionType}',
                                                       ledgerController
@@ -288,6 +289,8 @@ class LedgerHome extends StatelessWidget {
                                                           .value,
                                                     ),
                                                     const SizedBox(height: 3),
+
+                                                    // OPENING BALANCE + DEBIT HANDLING
                                                     FutureBuilder(
                                                       future: CustomerRepository()
                                                           .getOpeningBalanceForCustomer(
@@ -303,11 +306,17 @@ class LedgerHome extends StatelessWidget {
                                                             width: 16,
                                                           );
                                                         }
+
+                                                        final openingBalance =
+                                                            (snapshot.data
+                                                                is num)
+                                                            ? snapshot.data
+                                                                  as num
+                                                            : 0;
+
                                                         return buildHighlightedText(
-                                                          snapshot.data != 0 ||
-                                                                  snapshot.data !=
-                                                                      0.0
-                                                              ? "Opening Bal: ${NumberFormat('#,##0').format(snapshot.data)}"
+                                                          openingBalance != 0
+                                                              ? "Opening Bal: ${NumberFormat('#,##0').format(openingBalance)}"
                                                               : 'Debit: ${NumberFormat('#,##0').format(ledger.debit)}',
                                                           ledgerController
                                                               .searchQuery
@@ -316,12 +325,66 @@ class LedgerHome extends StatelessWidget {
                                                       },
                                                     ),
                                                     const SizedBox(height: 3),
+
+                                                    // CREDIT
                                                     buildHighlightedText(
                                                       'Credit: ${NumberFormat('#,##0').format(ledger.credit)}',
                                                       ledgerController
                                                           .searchQuery
                                                           .value,
                                                     ),
+                                                    const SizedBox(height: 3),
+
+                                                    // NET BALANCE — UPDATED
+                                                    // NET BALANCE — convert negative to positive
+                                                    FutureBuilder(
+                                                      future: CustomerRepository()
+                                                          .getOpeningBalanceForCustomer(
+                                                            ledger.accountName,
+                                                          ),
+                                                      builder: (context, snapshot) {
+                                                        if (snapshot
+                                                                .connectionState ==
+                                                            ConnectionState
+                                                                .waiting) {
+                                                          return const SizedBox(
+                                                            height: 16,
+                                                            width: 16,
+                                                          );
+                                                        }
+
+                                                        final openingBalance =
+                                                            (snapshot.data
+                                                                is num)
+                                                            ? snapshot.data
+                                                                  as num
+                                                            : 0;
+
+                                                        // total debit = ledger.debit + opening balance (if non-zero)
+                                                        final totalDebit =
+                                                            ledger.debit +
+                                                            (openingBalance != 0
+                                                                ? openingBalance
+                                                                : 0);
+
+                                                        // raw net balance
+                                                        final netBalance =
+                                                            totalDebit -
+                                                            ledger.credit;
+
+                                                        // ✔ FIX: convert negative → positive (absolute value)
+                                                        final positiveNet =
+                                                            netBalance.abs();
+
+                                                        return buildHighlightedText(
+                                                          'Net Balance: ${NumberFormat('#,##0').format(positiveNet)}',
+                                                          ledgerController
+                                                              .searchQuery
+                                                              .value,
+                                                        );
+                                                      },
+                                                    ),
+
                                                     if (ledger.description !=
                                                         null) ...[
                                                       const SizedBox(height: 3),
@@ -1137,14 +1200,21 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
 
 class LedgerTablePage extends StatelessWidget {
   final Ledger ledger;
-
   const LedgerTablePage({super.key, required this.ledger});
-
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<LedgerTableController>();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    // Compute net balance locally to avoid side effects in getter (sort + refresh during build)
+    // ignore: unused_local_variable
+    double netBal = controller.openingBalance;
+    final entries = controller.filteredLedgerEntries.toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+    for (final entry in entries) {
+      final debitAmount = safeParseDouble(entry.debit);
+      final creditAmount = safeParseDouble(entry.credit);
+      // ✅ FIXED: Balance = previous + credit - debit
+      netBal += creditAmount - debitAmount;
+    }
     // Create the column sizer using current entries (recreated whenever entries change)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await controller.fetchOpeningBalanceIfNeeded(ledger.accountName);
@@ -1159,7 +1229,6 @@ class LedgerTablePage extends StatelessWidget {
         }
       });
     });
-
     return BaseLayout(
       showBackButton: true,
       appBarTitle: "Ledger Entries of: ${ledger.accountName}",
@@ -1184,6 +1253,16 @@ class LedgerTablePage extends StatelessWidget {
         controller.ensureColumnWidth('debit', 90);
         controller.ensureColumnWidth('credit', 90);
         controller.ensureColumnWidth('balance', 110);
+        // Compute net balance locally to avoid side effects in getter (sort + refresh during build)
+        // double netBal = controller.openingBalance;
+        final entries = controller.filteredLedgerEntries.toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
+        for (final entry in entries) {
+          final debitAmount = safeParseDouble(entry.debit);
+          final creditAmount = safeParseDouble(entry.credit);
+          final isDebit = entry.transactionType.toLowerCase() == 'debit';
+          netBal += isDebit ? debitAmount : -creditAmount;
+        }
         return Column(
           children: [
             // Search + Filters Row
@@ -1330,7 +1409,6 @@ class LedgerTablePage extends StatelessWidget {
                 ],
               ),
             ),
-
             // Ledger Entries Table
             controller.isLoading.value
                 ? Expanded(
@@ -1373,7 +1451,6 @@ class LedgerTablePage extends StatelessWidget {
                           showLedgerEntryDialog(context, entry);
                         }
                       },
-
                       // optional: persist width after resize ends (not strictly necessary)
                       onColumnResizeEnd: (ColumnResizeEndDetails details) {
                         final colName = details.column.columnName;
@@ -1466,63 +1543,19 @@ class LedgerTablePage extends StatelessWidget {
                     ),
                   ),
             // Totals row
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? Theme.of(context).colorScheme.surfaceContainerHighest
-                    : Theme.of(context).colorScheme.surfaceContainerHigh,
-                border: Border(
-                  top: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                    width: 1,
-                  ),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  totalBox("Total Debit", controller.totalDebit, context),
-                  const SizedBox(width: 16),
-                  totalBox(
-                    "Opening Balance",
-                    controller.openingBalance,
-                    context,
-                  ),
-                  const SizedBox(width: 16),
-                  totalBox("Net Balance", controller.netBalance, context),
-                ],
-              ),
-            ),
+            // Row(
+            // mainAxisAlignment: MainAxisAlignment.end,
+            // children: [
+            // totalBox("Total Debit", controller.totalDebit, context),
+            // const SizedBox(width: 16),
+            // totalBox("Opening Balance", controller.openingBalance, context),
+            // const SizedBox(width: 16),
+            // totalBox("Balance", netBal, context),
+            // ],
+            // ),
           ],
         );
       }),
-    );
-  }
-
-  Widget totalBox(String label, double value, BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: isDark
-            ? Theme.of(context).colorScheme.surface
-            : Theme.of(context).colorScheme.primaryContainer,
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
-          width: 1,
-        ),
-      ),
-      child: Text(
-        "$label: ${NumberFormat('#,##0', 'en_US').format(value)}",
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: isDark
-              ? Theme.of(context).colorScheme.onSurface
-              : Theme.of(context).colorScheme.onPrimaryContainer,
-        ),
-      ),
     );
   }
 
@@ -1536,43 +1569,85 @@ class LedgerTablePage extends StatelessWidget {
       ),
     ),
   );
-
   Future<void> printEntry(LedgerEntry entry, int index) async {
     final ledgerTableController = Get.find<LedgerTableController>();
+    final ledgerController = ledgerTableController.ledgerController;
     final customerController = Get.find<CustomerController>();
-    final items = [
-      ReceiptItem(
-        name: entry.itemName!,
-        price: entry.itemPricePerUnit ?? 0,
-        canQuantity: entry.cansQuantity ?? 0,
-        type: entry.transactionType,
-        description: entry.description ?? '',
-        amount: (entry.debit) > 0 ? entry.debit : entry.credit,
-      ),
-    ];
+    final allEntries = ledgerController.ledgerEntries;
+    final voucherNo = entry.voucherNo;
+    final voucherEntries = allEntries
+        .where((e) => e.voucherNo == voucherNo)
+        .toList();
+    final items = voucherEntries.map((e) {
+      return ReceiptItem(
+        name: e.itemName ?? 'Unknown Item',
+        price: e.itemPricePerUnit ?? 0,
+        canQuantity: e.cansQuantity ?? 0,
+        type: e.transactionType,
+        description: e.description ?? '',
+        amount: safeParseDouble(e.debit) > 0
+            ? safeParseDouble(e.debit)
+            : safeParseDouble(e.credit),
+      );
+    }).toList();
     var customer = await customerController.repo.getCustomer(
       ledger.accountId!.toString(),
     );
-
-    // ====== NEW: compute running previous balance by iterating up to `index` ======
-    final list = ledgerTableController.filteredLedgerEntries;
-    double runningPrevBalance = 0.0;
-
-    // Sum net cans (added - received) for all entries before `index`
-    for (int i = 0; i < index && i < list.length; i++) {
-      final prevEntry = list[i];
-      final prevCans = safeParseDouble(prevEntry.cansQuantity);
-      final prevReceived = safeParseDouble(prevEntry.receivedCans);
-      runningPrevBalance = runningPrevBalance + prevCans - prevReceived;
+    // Compute running previous balance by date (using all entries for accuracy)
+    final thisDate = entry.date;
+    double runningPrevBalance = 0.0; // for cans
+    for (final prevEntry in allEntries) {
+      if (prevEntry.date.isBefore(thisDate)) {
+        final prevCans = safeParseDouble(prevEntry.cansQuantity);
+        final prevReceived = safeParseDouble(prevEntry.receivedCans);
+        runningPrevBalance += prevCans - prevReceived;
+      }
     }
-
-    // Current entry values
-    final currentCans = safeParseDouble(list[index].cansQuantity);
-    final receivedCans = safeParseDouble(list[index].receivedCans);
-
-    // Totals based on running previous balance
+    // Current sums for cans
+    final currentCans = voucherEntries.fold(
+      0.0,
+      (sum, e) => sum + safeParseDouble(e.cansQuantity),
+    );
+    final receivedCans = voucherEntries.fold(
+      0.0,
+      (sum, e) => sum + safeParseDouble(e.receivedCans),
+    );
     final totalCans = runningPrevBalance + currentCans;
     final newBalanceCans = totalCans - receivedCans;
+    // Compute previous monetary amount based on date (using all entries)
+    double previousAmount = ledgerTableController.openingBalance;
+    for (final prevEntry in allEntries) {
+      if (prevEntry.date.isBefore(thisDate)) {
+        final debitAmt = safeParseDouble(prevEntry.debit);
+        final creditAmt = safeParseDouble(prevEntry.credit);
+        // ✅ FIXED: Balance = previous + credit - debit
+        previousAmount += creditAmt - debitAmt;
+      }
+    }
+    // Sums for voucher
+    final totalDebit = voucherEntries.fold(
+      0.0,
+      (sum, e) => sum + safeParseDouble(e.debit),
+    );
+    final totalCredit = voucherEntries.fold(
+      0.0,
+      (sum, e) => sum + safeParseDouble(e.credit),
+    );
+    // ✅ FIXED: Net balance calculation (consistent with running balance)
+    final netBalance = previousAmount + totalCredit - totalDebit;
+    // Current amount as total transaction value (debit + credit, assuming mutually exclusive)
+    final currentAmount = totalDebit + totalCredit;
+    // ✅ FIXED: Ensure no negative values
+    final displayPreviousAmount = previousAmount < 0 ? 0.0 : previousAmount;
+    final displayCurrentAmount = currentAmount < 0 ? 0.0 : currentAmount;
+    final displayNetBalance = netBalance < 0 ? 0.0 : netBalance;
+    final displayPreviousCans = runningPrevBalance < 0
+        ? 0.0
+        : runningPrevBalance;
+    final displayCurrentCans = currentCans < 0 ? 0.0 : currentCans;
+    final displayTotalCans = totalCans < 0 ? 0.0 : totalCans;
+    final displayReceivedCans = receivedCans < 0 ? 0.0 : receivedCans;
+    final displayBalanceCans = newBalanceCans < 0 ? 0.0 : newBalanceCans;
     final data = ReceiptData(
       companyName: 'NAZ ENTERPRISES',
       date: DateFormat('dd/MM/yyyy').format(entry.date),
@@ -1580,28 +1655,16 @@ class LedgerTablePage extends StatelessWidget {
       customerAddress: customer?.address ?? '',
       vehicleNumber: entry.referenceNo ?? 'N/A',
       items: items,
-
-      // Use calculated values (instead of stored stale ones)
-      previousCans: runningPrevBalance,
-      currentCans: currentCans,
-      totalCans: totalCans,
-
-      receivedCans: receivedCans,
-      balanceCans: newBalanceCans,
-
-      currentAmount: entry.transactionType.toLowerCase() == 'debit'
-          ? (entry.debit)
-          : (entry.credit),
-
-      netBalance: index == 0
-          ? 0.0
-          : ledgerTableController.filteredLedgerEntries[index - 1].balance,
-      previousAmount: (index > 0
-          ? ledgerTableController.filteredLedgerEntries[index - 1].balance
-          : 0.0),
+      previousCans: displayPreviousCans,
+      currentCans: displayCurrentCans,
+      totalCans: displayTotalCans,
+      receivedCans: displayReceivedCans,
+      balanceCans: displayBalanceCans,
+      currentAmount: displayCurrentAmount,
+      previousAmount: displayPreviousAmount,
+      netBalance: displayNetBalance,
       voucherNumber: entry.voucherNo,
     );
-
     await ReceiptPdfGenerator.generateAndPrint(data);
   }
 
@@ -1676,7 +1739,6 @@ class LedgerEntryDataSource extends DataGridSource {
   final Function(LedgerEntry, int) onPrint;
   final Function(LedgerEntry) onDelete;
   final Function(LedgerEntry) onEdit;
-
   LedgerEntryDataSource(
     List<LedgerEntry> entries,
     this.context, {
@@ -1720,20 +1782,17 @@ class LedgerEntryDataSource extends DataGridSource {
       );
     }).toList();
   }
-
   @override
   List<DataGridRow> get rows => _rows;
-
   @override
   DataGridRowAdapter buildRow(DataGridRow row) {
     final entry = (row.getCells().last.value as LedgerEntry);
     bool isHovered = false;
-
     return DataGridRowAdapter(
       cells: row.getCells().asMap().entries.map((cellEntry) {
         final cell = cellEntry.value;
         final isLastCell = cellEntry.key == row.getCells().length - 1;
-        // final rowIndex = _rows.length - 1 - _rows.indexOf(row);
+        final rowIndex = _rows.length - 1 - _rows.indexOf(row);
         if (isLastCell) {
           return StatefulBuilder(
             builder: (context, setState) {
@@ -1785,21 +1844,23 @@ class LedgerEntryDataSource extends DataGridSource {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Tooltip(
-                            //   message: "print",
-                            //   child: InkWell(
-                            //     borderRadius: BorderRadius.circular(14),
-                            //     onTap: () => onPrint(entry, rowIndex),
-                            //     child: Padding(
-                            //       padding: const EdgeInsets.only(right: 4.0),
-                            //       child: Icon(
-                            //         Icons.print_outlined,
-                            //         size: 16,
-                            //         color: Theme.of(context).colorScheme.primary,
-                            //       ),
-                            //     ),
-                            //   ),
-                            // ),
+                            Tooltip(
+                              message: "print",
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () => onPrint(entry, rowIndex),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 4.0),
+                                  child: Icon(
+                                    Icons.print_outlined,
+                                    size: 16,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                ),
+                              ),
+                            ),
                             Tooltip(
                               message: "delete",
                               child: InkWell(
@@ -1844,7 +1905,6 @@ class LedgerEntryDataSource extends DataGridSource {
             },
           );
         }
-
         return Container(
           alignment: Alignment.center,
           child: Padding(
@@ -1898,23 +1958,18 @@ class LedgerTableController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-
     // Initialize with proper dates
     final now = DateTime.now();
     final thirtyDaysAgo = now.subtract(Duration(days: 30));
-
     fromDate.value = thirtyDaysAgo;
     toDate.value = now;
-
     fromDateController.text = DateFormat('dd-MM-yyyy').format(thirtyDaysAgo);
     toDateController.text = DateFormat('dd-MM-yyyy').format(now);
-
     // React to changes in filter criteria
     ever(searchQuery, (_) => _applyFilters());
     ever(fromDate, (_) => _applyFilters());
     ever(toDate, (_) => _applyFilters());
     ever(selectedTransactionType, (_) => _applyFilters());
-
     // Apply initial filters
     _applyFilters();
   }
@@ -1922,7 +1977,6 @@ class LedgerTableController extends GetxController {
   void _applyFilters() {
     DateTime fromDateValue;
     DateTime toDateValue;
-
     try {
       // Handle empty or invalid fromDate
       if (fromDateController.text.isEmpty) {
@@ -1930,7 +1984,6 @@ class LedgerTableController extends GetxController {
       } else {
         fromDateValue = DateFormat('dd-MM-yyyy').parse(fromDateController.text);
       }
-
       // Handle empty or invalid toDate
       if (toDateController.text.isEmpty) {
         toDateValue = DateTime.now();
@@ -1941,21 +1994,17 @@ class LedgerTableController extends GetxController {
       // Fallback to default dates if parsing fails
       fromDateValue = DateTime.now().subtract(Duration(days: 30));
       toDateValue = DateTime.now();
-
       // Update controllers with fallback values
       fromDateController.text = DateFormat('dd-MM-yyyy').format(fromDateValue);
       toDateController.text = DateFormat('dd-MM-yyyy').format(toDateValue);
     }
-
     final filtered = ledgerController.ledgerEntries.where((entry) {
       bool dateMatch =
           entry.date.isAfter(fromDateValue.subtract(Duration(days: 1))) &&
           entry.date.isBefore(toDateValue.add(Duration(days: 1)));
-
       bool typeMatch =
           selectedTransactionType.value == null ||
           entry.transactionType == selectedTransactionType.value;
-
       bool searchMatch =
           searchQuery.value.isEmpty ||
           entry.voucherNo.toLowerCase().contains(
@@ -1965,16 +2014,13 @@ class LedgerTableController extends GetxController {
                 searchQuery.value.toLowerCase(),
               ) ??
               false);
-
       return dateMatch && typeMatch && searchMatch;
     }).toList();
-
     filtered.sort((a, b) {
       int dateComparison = b.date.compareTo(a.date);
       if (dateComparison != 0) return dateComparison;
       return (b.id ?? 0).compareTo(a.id ?? 0);
     });
-
     filteredLedgerEntries.assignAll(filtered);
   }
 
@@ -1997,34 +2043,29 @@ class LedgerTableController extends GetxController {
   void calculateRunningBalance(String ledgerNo) {
     final allEntries = ledgerController.ledgerEntries;
     double runningBalance = 0.0;
-
     // Sort entries by date and id to ensure chronological order for calculations
     allEntries.sort((a, b) {
       int dateComparison = a.date.compareTo(b.date);
       if (dateComparison != 0) return dateComparison;
       return (a.id ?? 0).compareTo(b.id ?? 0);
     });
-
     for (var entry in allEntries) {
-      // Update balance: previous balance + credit only (ignore debit)
-      runningBalance += entry.credit;
+      // ✅ FIXED: Balance = previous + credit - debit
+      runningBalance += entry.credit - entry.debit;
       entry.balance = runningBalance;
     }
-
     // Trigger filter to update the view with correct balances and sorting
     filterLedgerEntries();
   }
 
   Future<void> selectDate(BuildContext context, bool isFromDate) async {
     final currentDate = isFromDate ? fromDate.value : toDate.value;
-
     final picked = await showDatePicker(
       context: context,
       initialDate: currentDate,
       firstDate: DateTime(2000),
       lastDate: DateTime.now(),
     );
-
     if (picked != null) {
       if (isFromDate) {
         fromDateController.text = DateFormat('dd-MM-yyyy').format(picked);
@@ -2045,16 +2086,13 @@ class LedgerTableController extends GetxController {
       final entryDate = entry.date;
       final fromDate = DateFormat('dd-MM-yyyy').parse(fromDateController.text);
       final toDate = DateFormat('dd-MM-yyyy').parse(toDateController.text);
-
       bool dateMatch =
           entryDate.isAfter(fromDate.subtract(Duration(days: 1))) &&
           entryDate.isBefore(toDate.add(Duration(days: 1)));
-
       // Transaction type filter
       bool typeMatch =
           selectedTransactionType.value == null ||
           entry.transactionType == selectedTransactionType.value;
-
       // Search filter
       bool searchMatch =
           searchController.text.isEmpty ||
@@ -2068,17 +2106,14 @@ class LedgerTableController extends GetxController {
           DateFormat(
             'dd-MM-yyyy',
           ).format(entry.date).contains(searchController.text);
-
       return dateMatch && typeMatch && searchMatch;
     }).toList();
-
     // Sort filtered entries by date ASCENDING and id ASCENDING (for display order)
     filtered.sort((a, b) {
       int dateComparison = a.date.compareTo(b.date); // ASCENDING: a before b
       if (dateComparison != 0) return dateComparison;
       return (a.id ?? 0).compareTo(b.id ?? 0); // ASCENDING: a before b
     });
-
     // Update the filtered entries in the ledger controller
     filteredLedgerEntries.assignAll(filtered);
   }
@@ -2089,7 +2124,6 @@ class LedgerTableController extends GetxController {
     } else {
       selectedRows.remove(id);
     }
-
     if (selectedRows.length == filteredLedgerEntries.length) {
       selectAll.value = true;
     } else {
@@ -2128,7 +2162,7 @@ class LedgerTableController extends GetxController {
   double get netBalance {
     final allEntries = ledgerController.ledgerEntries;
     if (allEntries.isEmpty) {
-      return 0.0; // Return 0.0 when no entries exist
+      return openingBalance; // ✅ Return opening balance if no entries
     }
     allEntries.sort((a, b) => b.date.compareTo(a.date)); // Latest first
     return allEntries.first.balance + openingBalance;
@@ -2149,13 +2183,11 @@ class LedgerTableController extends GetxController {
   void analyzeCalculations() {
     final entries = filteredLedgerEntries;
     String analysis = "Calculation Analysis:\n\n";
-
     analysis += "All Entries:\n";
     for (var entry in entries) {
       analysis +=
           "Voucher: ${entry.voucherNo} | Debit: ${NumberFormat('#,##0', 'en_US').format(entry.debit)} | Credit: ${NumberFormat('#,##0', 'en_US').format(entry.credit)} | Balance: ${NumberFormat('#,##0', 'en_US').format(entry.balance)}\n";
     }
-
     analysis += "\nTotals:\n";
     analysis +=
         "Total Debit: ${NumberFormat('#,##0', 'en_US').format(totalDebit)}\n";
@@ -2163,7 +2195,6 @@ class LedgerTableController extends GetxController {
         "Total Credit: ${NumberFormat('#,##0', 'en_US').format(totalCredit)}\n";
     analysis +=
         "Net Balance: ${NumberFormat('#,##0', 'en_US').format(netBalance)}\n\n";
-
     // Calculate expected net balance (credits only)
     double calculatedNetBalance = entries.fold(
       0.0,
@@ -2171,7 +2202,6 @@ class LedgerTableController extends GetxController {
     );
     analysis +=
         "Calculated Net Balance (Sum of Credits): ${NumberFormat('#,##0', 'en_US').format(calculatedNetBalance)}\n";
-
     if ((netBalance - calculatedNetBalance).abs() < 0.01) {
       // Allow for floating point precision
       analysis += "✓ Balance calculation is CORRECT\n";
@@ -2180,7 +2210,6 @@ class LedgerTableController extends GetxController {
       analysis +=
           "Difference: ${NumberFormat('#,##0', 'en_US').format(netBalance - calculatedNetBalance)}\n";
     }
-
     calculationAnalysis.value = analysis;
     showCalculationAnalysis.value = true;
   }
@@ -2199,7 +2228,6 @@ class LedgerController extends GetxController {
   String? _sharedVoucherNo;
   final formKey = GlobalKey<FormState>();
   RxBool isLedgerExists = false.obs;
-
   // Ledger Form controllers
   final ledgerNoController = TextEditingController();
   final voucherNoController = TextEditingController();
@@ -2215,20 +2243,17 @@ class LedgerController extends GetxController {
   final tagsController = TextEditingController();
   final createdByController = TextEditingController();
   final statusController = TextEditingController();
-
   // New cheque field controllers
   final chequeNoController = TextEditingController();
   final chequeAmountController = TextEditingController();
   final chequeDateController = TextEditingController();
   final bankNameController = TextEditingController();
-
   final selectedDate = DateTime.now().obs;
   final transactionType = RxnString();
   final status = RxnString();
   final searchQuery = ''.obs;
   final recentSearches = <String>[].obs;
   final availableItems = <Item>[].obs;
-
   // Bank list for dropdown
   final List<String> bankList = [
     'Habib Bank Limited (HBL)',
@@ -2253,9 +2278,7 @@ class LedgerController extends GetxController {
     'Soneri Bank',
     'Silk Bank',
   ];
-
   LedgerController(this.repo);
-
   double oldDebit = 0;
   double oldCredit = 0;
   RxDouble totalSales = 0.0.obs;
@@ -2279,7 +2302,6 @@ class LedgerController extends GetxController {
     'Nov',
     'Dec',
   ];
-
   @override
   void onInit() {
     super.onInit();
@@ -2306,7 +2328,6 @@ class LedgerController extends GetxController {
   void clearCashFields() {
     // Add any cash-specific fields here if needed in future
   }
-
   Future<void> getStats() async {
     totalSales.value = await DBHelper().getTotalSales();
     totalReceivables.value = await DBHelper().getTotalReceivables();
@@ -2330,7 +2351,6 @@ class LedgerController extends GetxController {
       (l) => l.ledgerNo == ledgerNo,
       orElse: () => throw Exception('Ledger with number $ledgerNo not found'),
     );
-
     final newForm = EntryFormData();
     newForm.ledgerNoController.text = ledgerNo;
     newForm.accountNameController.text = parentLedger.accountName;
@@ -2340,7 +2360,6 @@ class LedgerController extends GetxController {
     newForm.currentStep.value = 0;
     newForm.selectedItem.value = null;
     newForm.paymentMethod.value = 'cash'; // Default to cash
-
     if (_sharedVoucherNo == null) {
       String voucherNo;
       if (_nextVoucherNums.containsKey(ledgerNo)) {
@@ -2361,7 +2380,6 @@ class LedgerController extends GetxController {
       }
       _sharedVoucherNo = voucherNo;
     }
-
     newForm.voucherNoController.text = _sharedVoucherNo!;
     newForm.transactionType.value = "Debit";
     newForm.transactionTypeController.text = "Debit";
@@ -2369,14 +2387,12 @@ class LedgerController extends GetxController {
     newForm.statusController.text = "Debit";
     await newForm._initPreviousBalance();
     entryForms.add(newForm);
-
     newForm.creditController.addListener(
       () => _handleInputSign(
         newForm.creditController,
         newForm.transactionType.value == "Debit",
       ),
     );
-
     newForm.debitController.addListener(
       () => _handleInputSign(
         newForm.debitController,
@@ -2429,7 +2445,6 @@ class LedgerController extends GetxController {
   void ensureSelectedItemIsAvailable() {
     // This is now per form, but since shared items, no need
   }
-
   // ========== STOCK MANAGEMENT METHODS (WEIGHT-BASED) ==========
   Future<void> updateItemStock(
     Item item,
@@ -2451,7 +2466,6 @@ class LedgerController extends GetxController {
           'Insufficient stock for item ${item.name}. Available: ${currentItem.availableStock} kgs, Required: ${weightChange.abs()} kgs',
         );
       }
-
       final stockTx = StockTransaction(
         itemId: item.id!,
         quantity: weightChange.abs(),
@@ -2460,7 +2474,6 @@ class LedgerController extends GetxController {
       );
       await inventoryRepo.insertStockTransaction(stockTx);
       await fetchItems();
-
       final verifyMap = await db.query(
         'item',
         where: 'id = ?',
@@ -2484,12 +2497,10 @@ class LedgerController extends GetxController {
         newEntry.canWeight == null) {
       return;
     }
-
     final item = availableItems.firstWhere(
       (item) => item.id == newEntry.itemId,
       orElse: () => throw Exception('Item not found in availableItems'),
     );
-
     final weightChange = -_calculateTotalWeight(newEntry);
     await updateItemStock(item, weightChange, 'OUT');
   }
@@ -2501,7 +2512,6 @@ class LedgerController extends GetxController {
     if (oldEntry.itemId == null && newEntry.itemId == null) {
       return;
     }
-
     // Case 1: Item was removed from the entry
     if (oldEntry.itemId != null && newEntry.itemId == null) {
       final oldItem = availableItems.firstWhere(
@@ -2513,7 +2523,6 @@ class LedgerController extends GetxController {
       await updateItemStock(oldItem, reverseWeight, 'IN');
       return;
     }
-
     // Case 2: Item was added to the entry
     if (oldEntry.itemId == null && newEntry.itemId != null) {
       final newItem = availableItems.firstWhere(
@@ -2525,7 +2534,6 @@ class LedgerController extends GetxController {
       await updateItemStock(newItem, weightChange, 'OUT');
       return;
     }
-
     // Case 3: Item was changed or quantity/weight was modified
     if (oldEntry.itemId != null && newEntry.itemId != null) {
       if (oldEntry.itemId != newEntry.itemId) {
@@ -2536,7 +2544,6 @@ class LedgerController extends GetxController {
         final oldWeight = _calculateTotalWeight(oldEntry);
         final reverseWeight = oldWeight;
         await updateItemStock(oldItem, reverseWeight, 'IN');
-
         final newItem = availableItems.firstWhere(
           (item) => item.id == newEntry.itemId,
           orElse: () => throw Exception('Item not found'),
@@ -2676,7 +2683,6 @@ class LedgerController extends GetxController {
     final totalDebit = entries.fold<double>(0.0, (sum, e) => sum + e.debit);
     final totalCredit = entries.fold<double>(0.0, (sum, e) => sum + e.credit);
     final newBalance = totalCredit;
-
     final updatedLedger = Ledger(
       id: ledger.id,
       ledgerNo: ledger.ledgerNo,
@@ -2697,7 +2703,6 @@ class LedgerController extends GetxController {
       createdAt: ledger.createdAt,
       updatedAt: DateTime.now(),
     );
-
     await repo.updateLedger(updatedLedger);
     final index = ledgers.indexWhere((l) => l.id == ledger.id);
     if (index != -1) {
@@ -2742,10 +2747,8 @@ class LedgerController extends GetxController {
       (l) => l.ledgerNo == ledgerNo,
       orElse: () => throw Exception('Ledger with number $ledgerNo not found'),
     );
-
     entryForms.clear();
     _sharedVoucherNo = null;
-
     final newForm = EntryFormData();
     newForm.ledgerNoController.text = ledgerNo;
     newForm.accountNameController.text = parentLedger.accountName;
@@ -2753,7 +2756,6 @@ class LedgerController extends GetxController {
     newForm.selectedDate.value = DateTime.now();
     newForm.currentStep.value = 0;
     newForm.paymentMethod.value = 'cash'; // Default to cash
-
     if (entry != null) {
       newForm.originalEntry = entry;
       newForm.voucherNoController.text = entry.voucherNo;
@@ -2770,7 +2772,6 @@ class LedgerController extends GetxController {
       newForm.status.value = entry.status;
       newForm.statusController.text = entry.status;
       newForm.selectedDate.value = entry.date;
-
       // Load payment method and cheque details if exists
       newForm.paymentMethod.value = entry.paymentMethod ?? 'cash';
       newForm.chequeNoController.text = entry.chequeNo ?? '';
@@ -2778,7 +2779,6 @@ class LedgerController extends GetxController {
           entry.chequeAmount?.toStringAsFixed(2) ?? '';
       newForm.chequeDate.value = entry.chequeDate;
       newForm.bankNameController.text = entry.bankName ?? '';
-
       if (entry.itemId != null) {
         final item = availableItems.firstWhereOrNull(
           (item) => item.id == entry.itemId,
@@ -2810,7 +2810,6 @@ class LedgerController extends GetxController {
       newForm.transactionTypeController.text = "Debit";
       newForm.status.value = "Debit";
       newForm.statusController.text = "Debit";
-
       String voucherNo;
       if (_nextVoucherNums.containsKey(ledgerNo)) {
         final num = _nextVoucherNums[ledgerNo]!;
@@ -2832,17 +2831,14 @@ class LedgerController extends GetxController {
       _sharedVoucherNo = voucherNo;
       newForm.selectedItem.value = null;
     }
-
     await newForm._initPreviousBalance();
     entryForms.add(newForm);
-
     newForm.creditController.addListener(
       () => _handleInputSign(
         newForm.creditController,
         newForm.transactionType.value == "Debit",
       ),
     );
-
     newForm.debitController.addListener(
       () => _handleInputSign(
         newForm.debitController,
@@ -2853,11 +2849,9 @@ class LedgerController extends GetxController {
 
   Future<void> saveLedger(BuildContext context, {Ledger? ledger}) async {
     if (!formKey.currentState!.validate()) return;
-
     final parsedDebit = double.tryParse(debitController.text) ?? 0.0;
     final parsedCredit = double.tryParse(creditController.text) ?? 0.0;
     final parsedBalance = double.tryParse(balanceController.text) ?? 0.0;
-
     final newLedger = Ledger(
       id: ledger?.id,
       ledgerNo: ledgerNoController.text.toString().replaceAll('-', '_'),
@@ -2890,7 +2884,6 @@ class LedgerController extends GetxController {
       createdAt: ledger?.createdAt ?? DateTime.now(),
       updatedAt: DateTime.now(),
     );
-
     int? aid = newLedger.accountId;
     if (ledger != null) {
       oldDebit = ledger.debit;
@@ -2900,11 +2893,9 @@ class LedgerController extends GetxController {
       await repo.insertLedger(newLedger);
       await repo.createLedgerEntryTable(newLedger.ledgerNo);
     }
-
     if (aid != null) {
       await recalculateBalancesForAccount(aid);
     }
-
     clearForm();
     await fetchLedgers();
     if (context.mounted) NavigationHelper.pop(context);
@@ -2916,7 +2907,6 @@ class LedgerController extends GetxController {
   }) async {
     List<LedgerEntry> savedEntries = [];
     Future<Dialog?>? loadingDialogFuture;
-
     try {
       // First pass: Validate all forms without saving
       for (int i = 0; i < entryForms.length; i++) {
@@ -2934,7 +2924,6 @@ class LedgerController extends GetxController {
           }
           return [];
         }
-
         // Validate item stock based on weight
         if (formData.selectedItem.value != null &&
             formData.cansQuantityController.text.isNotEmpty &&
@@ -2960,7 +2949,6 @@ class LedgerController extends GetxController {
           }
         }
       }
-
       // All validations passed, now show loading dialog
       if (context.mounted) {
         loadingDialogFuture = showDialog<Dialog?>(
@@ -2979,7 +2967,6 @@ class LedgerController extends GetxController {
           },
         );
       }
-
       if (_sharedVoucherNo == null) {
         final lastVoucherNo = await repo.getLastVoucherNo(ledgerNo);
         final regex = RegExp(r'VN(\d+)');
@@ -2991,11 +2978,9 @@ class LedgerController extends GetxController {
         _sharedVoucherNo = 'VN${(maxNum + 1).toString().padLeft(2, '0')}';
         _nextVoucherNums[ledgerNo] = maxNum + 2;
       }
-
       // Second pass: Save entries sequentially, awaiting each operation fully
       for (int i = 0; i < entryForms.length; i++) {
         final formData = entryForms[i];
-
         formData.voucherNoController.text = _sharedVoucherNo!;
         final parsedDebit =
             double.tryParse(formData.debitController.text) ?? 0.0;
@@ -3003,7 +2988,6 @@ class LedgerController extends GetxController {
             double.tryParse(formData.creditController.text) ?? 0.0;
         final parsedBalance =
             double.tryParse(formData.balanceController.text) ?? 0.0;
-
         final newEntry = LedgerEntry(
           id: formData.originalEntry?.id,
           ledgerNo: formData.ledgerNoController.text,
@@ -3068,7 +3052,6 @@ class LedgerController extends GetxController {
               ? formData.bankNameController.text
               : null,
         );
-
         if (formData.originalEntry == null) {
           await repo.insertLedgerEntry(newEntry, ledgerNo);
           await _handleItemStockForNewEntry(newEntry);
@@ -3086,18 +3069,14 @@ class LedgerController extends GetxController {
           );
           await repo.updateLedgerEntry(newEntry, ledgerNo);
         }
-
         // Ensure full await between entries to release any potential locks
         await Future.delayed(const Duration(milliseconds: 100));
-
         savedEntries.add(newEntry);
       }
-
       final List<ReceiptItem> receiptItems = savedEntries.map((entry) {
         final price = entry.sellingPricePerCan ?? entry.itemPricePerUnit ?? 0.0;
         final quantity = entry.cansQuantity ?? 0;
         final amount = price;
-
         return ReceiptItem(
           name: entry.itemName ?? 'Unknown Item',
           price: price,
@@ -3107,20 +3086,16 @@ class LedgerController extends GetxController {
           amount: amount,
         );
       }).toList();
-
       final ledger = ledgers.firstWhere(
         (l) => l.ledgerNo == ledgerNo,
         orElse: () => throw Exception('Ledger with number $ledgerNo not found'),
       );
-
       final aid = ledger.accountId;
       if (aid != null) {
         await recalculateBalancesForAccount(aid);
       }
-
       await updateLedgerTotals(ledgerNo);
       await fetchLedgerEntries(ledgerNo);
-
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -3131,7 +3106,6 @@ class LedgerController extends GetxController {
           ),
         );
       }
-
       return receiptItems;
     } catch (e) {
       if (context.mounted) {
@@ -3187,7 +3161,6 @@ class LedgerController extends GetxController {
         );
       }
     }
-
     if (trans.isEmpty) return 0.0;
     trans.sort((a, b) => a.date.compareTo(b.date));
     return trans.last.balance;
@@ -3210,7 +3183,6 @@ class LedgerController extends GetxController {
     var ledgersForAccount = ledgers.where((l) => l.accountId == aid).toList();
     Map<int, Ledger> ledgerMap = {for (var l in ledgersForAccount) l.id!: l};
     Map<int, LedgerEntry> entryMap = {};
-
     for (var l in ledgersForAccount) {
       trans.add(
         TransactionItem(
@@ -3241,7 +3213,6 @@ class LedgerController extends GetxController {
         );
       }
     }
-
     if (trans.isEmpty) return;
     trans.sort((a, b) => a.date.compareTo(b.date));
     double currentBalance = 0.0;
@@ -3250,7 +3221,6 @@ class LedgerController extends GetxController {
       t.balance = currentBalance;
       t.status = currentBalance > 0 ? 'Debit' : 'Credit';
     }
-
     for (var t in trans) {
       if (t.type == 'ledger') {
         final original = ledgerMap[t.id]!;
@@ -3323,10 +3293,8 @@ class LedgerController extends GetxController {
     if (isEntry && ledgerNo == null) {
       throw Exception('ledgerNo must be provided when isEntry is true');
     }
-
     final regex = RegExp(r'VN(\d+)');
     int max = 0;
-
     final source = isEntry ? ledgerEntries : ledgers;
     for (final item in source) {
       final voucherNo = isEntry
@@ -3338,7 +3306,6 @@ class LedgerController extends GetxController {
         if (number > max) max = number;
       }
     }
-
     if (isEntry) {
       final lastVoucherNo = await repo.getLastVoucherNo(ledgerNo!);
       final match = regex.firstMatch(lastVoucherNo);
@@ -3347,7 +3314,6 @@ class LedgerController extends GetxController {
         if (number > max) max = number;
       }
     }
-
     final result = 'VN${(max + 1).toString().padLeft(2, '0')}';
     return result;
   }
@@ -3369,10 +3335,8 @@ class LedgerController extends GetxController {
     statusController.clear();
     transactionType.value = null;
     status.value = null;
-
     // Clear cheque fields
     clearChequeFields();
-
     if (!keepDate) {
       selectedDate.value = DateTime.now();
     }
@@ -3384,7 +3348,6 @@ class LedgerController extends GetxController {
       filteredLedgers.assignAll(ledgers);
       return;
     }
-
     filteredLedgers.assignAll(
       ledgers.where((ledger) {
         final ledgerNoStr = ledger.ledgerNo.toLowerCase();
@@ -3398,7 +3361,6 @@ class LedgerController extends GetxController {
         final tagsMatch =
             ledger.tags?.any((tag) => tag.toLowerCase().contains(query)) ??
             false;
-
         return ledgerNoStr.contains(query) ||
             voucherNoStr.contains(query) ||
             accountIdStr.contains(query) ||
@@ -3428,13 +3390,11 @@ class LedgerController extends GetxController {
     tagsController.dispose();
     createdByController.dispose();
     statusController.dispose();
-
     // Dispose cheque field controllers
     chequeNoController.dispose();
     chequeAmountController.dispose();
     chequeDateController.dispose();
     bankNameController.dispose();
-
     for (var form in entryForms) {
       form.dispose();
     }
@@ -3644,16 +3604,37 @@ class LedgerEntryAddEdit extends StatelessWidget {
                             continue;
                           }
                         }
+
                         if (allValid) {
+                          // ✅ Save all entries
                           final entries = await controller.saveAllLedgerEntries(
                             context,
                             ledgerNo: ledgerNo,
                           );
-                          ledgerTableController.loadLedgerEntries(ledgerNo);
-                          showPrintReceiptDialog(context, entries);
+
+                          // ✅ Refresh ledger entries immediately
+                          await ledgerTableController.loadLedgerEntries(
+                            ledgerNo,
+                          );
+
+                          // ✅ Refresh ledgers list
+                          await controller.fetchLedgers();
+
+                          // ✅ Call the callback if provided
                           if (onEntrySaved != null) {
                             onEntrySaved!();
                           }
+
+                          // ✅ Show print dialog with fresh data and ledgerNo
+                          if (entries.isNotEmpty && context.mounted) {
+                            showPrintReceiptDialog(
+                              context,
+                              entries,
+                              ledgerNo,
+                            ); // ✅ Pass ledgerNo
+                          }
+
+                          // ✅ Dispose scroll controller
                           scrollController.dispose();
                         }
                       },
@@ -3736,8 +3717,15 @@ class LedgerEntryAddEdit extends StatelessWidget {
     }
   }
 
-  void showPrintReceiptDialog(BuildContext context, List<ReceiptItem> entries) {
+  void showPrintReceiptDialog(
+    BuildContext context,
+    List<ReceiptItem> entries,
+    String ledgerNo, // ✅ Add ledgerNo parameter
+  ) {
     final EntryFormData formData = EntryFormData();
+    final ledgerTableController = Get.find<LedgerTableController>();
+    final ledgerController = Get.find<LedgerController>();
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -3823,9 +3811,14 @@ class LedgerEntryAddEdit extends StatelessWidget {
                   ),
                 if (askPrint)
                   TextButton(
-                    onPressed: () {
+                    onPressed: () async {
                       Navigator.of(ctx).pop();
-                      NavigationHelper.pop(context);
+                      // ✅ Refresh data before closing
+                      await ledgerTableController.loadLedgerEntries(ledgerNo);
+                      await ledgerController.fetchLedgers();
+                      if (context.mounted) {
+                        NavigationHelper.pop(context);
+                      }
                     },
                     child: Text(
                       'No',
@@ -3836,9 +3829,14 @@ class LedgerEntryAddEdit extends StatelessWidget {
                   ),
                 if (!askPrint)
                   TextButton(
-                    onPressed: () {
+                    onPressed: () async {
                       Navigator.of(ctx).pop();
-                      NavigationHelper.pop(context);
+                      // ✅ Refresh data before closing
+                      await ledgerTableController.loadLedgerEntries(ledgerNo);
+                      await ledgerController.fetchLedgers();
+                      if (context.mounted) {
+                        NavigationHelper.pop(context);
+                      }
                     },
                     child: Text(
                       'Cancel',
@@ -3853,13 +3851,23 @@ class LedgerEntryAddEdit extends StatelessWidget {
                         ? null
                         : () async {
                             Navigator.of(ctx).pop();
+
+                            // ✅ Print the receipt with ledgerNo
                             await printEntry(
                               entries,
                               vehicleNumber,
                               context,
                               includeLogo,
                               formData,
+                              ledgerNo, // ✅ Pass ledgerNo
                             );
+
+                            // ✅ Refresh all data after printing
+                            await ledgerTableController.loadLedgerEntries(
+                              ledgerNo,
+                            );
+                            await ledgerController.fetchLedgers();
+
                             if (context.mounted) {
                               NavigationHelper.pop(context);
                             }
@@ -3885,75 +3893,129 @@ class LedgerEntryAddEdit extends StatelessWidget {
     BuildContext context,
     bool showLogo,
     EntryFormData formData,
+    String ledgerNo,
   ) async {
     final ledgerTableController = Get.find<LedgerTableController>();
     final customerController = Get.find<CustomerController>();
 
-    double currentAmount = 0.0;
-    double currentCans = 0.0;
-    double receivedCans = 0.0;
+    // ✅ REFRESH ALL DATA FIRST
+    await ledgerTableController.loadLedgerEntries(ledgerNo);
 
     var customer = await customerController.repo.getCustomer(
       accountId.toString(),
     );
 
-    for (var i = 0; i < items.length; i++) {
-      final entryIndex =
-          ledgerTableController.filteredLedgerEntries.length - 1 - i;
-      final entry =
-          ledgerTableController.filteredLedgerEntries[entryIndex.toInt()];
+    // Check if we have entries after refresh
+    if (ledgerTableController.filteredLedgerEntries.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No entries found to print'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
-      currentAmount += safeParseDouble(
-        entry.credit > 0 ? entry.credit.toString() : entry.debit.toString(),
-      );
+    // Get all entries with the same voucher number
+    final voucherNo =
+        ledgerTableController.filteredLedgerEntries.last.voucherNo;
+    final entriesWithSameVoucher = ledgerTableController.filteredLedgerEntries
+        .where((e) => e.voucherNo == voucherNo)
+        .toList();
+
+    // Sort by date to ensure correct order
+    entriesWithSameVoucher.sort((a, b) => a.date.compareTo(b.date));
+
+    // Calculate totals for all entries with this voucher
+    double currentAmount = 0.0;
+    double currentCans = 0.0;
+    double receivedCans = 0.0;
+
+    for (var entry in entriesWithSameVoucher) {
+      // Sum up the amounts (credit or debit based on transaction type)
+      if (entry.transactionType.toLowerCase() == 'credit') {
+        currentAmount += safeParseDouble(entry.credit);
+      } else {
+        currentAmount += safeParseDouble(entry.debit);
+      }
 
       currentCans += safeParseDouble(entry.cansQuantity ?? '0');
       receivedCans += safeParseDouble(entry.receivedCans ?? '0');
     }
 
-    final previousCans = safeParseDouble(
-      ledgerTableController.balanceCans + receivedCans - currentCans,
-    );
+    // Get the date of the first entry in this voucher
+    final voucherDate = entriesWithSameVoucher.first.date;
 
-    final balanceCans = (previousCans + currentCans) - receivedCans;
+    // Calculate previous balance (before this voucher)
+    double previousAmount = ledgerTableController.openingBalance;
+    double previousCans = 0.0;
 
-    int prevIndex =
-        ledgerTableController.filteredLedgerEntries.length - 1 - items.length;
+    for (var entry in ledgerTableController.filteredLedgerEntries) {
+      // Skip entries with the same voucher number
+      if (entry.voucherNo == voucherNo) continue;
 
-    double previousAmount = 0.0;
-    final balanceText = ledgerTableController.netBalance - currentAmount;
-    if (ledgerTableController.filteredLedgerEntries.length == 1) {
-      if (balanceText != 0 || balanceText != 0.0) {
-        previousAmount = balanceText;
+      // Only count entries before this voucher's date
+      if (entry.date.isBefore(voucherDate)) {
+        final debitAmt = safeParseDouble(entry.debit);
+        final creditAmt = safeParseDouble(entry.credit);
+        // ✅ FIXED: Balance = previous + credit - debit
+        previousAmount += creditAmt - debitAmt;
+
+        // Calculate previous cans
+        final entryCans = safeParseDouble(entry.cansQuantity ?? '0');
+        final entryReceived = safeParseDouble(entry.receivedCans ?? '0');
+        previousCans += entryCans - entryReceived;
       }
-    } else if (prevIndex >= 0 &&
-        prevIndex < ledgerTableController.filteredLedgerEntries.length) {
-      previousAmount = ledgerTableController.netBalance - currentAmount;
     }
+
+    // Calculate totals
+    final totalCans = previousCans + currentCans;
+    final balanceCans = totalCans - receivedCans;
+
+    // ✅ FIXED: Net balance calculation based on transaction type
+    double netBalance;
+    final transactionType = entriesWithSameVoucher.first.transactionType
+        .toLowerCase();
+
+    if (transactionType == 'credit') {
+      // For credit transactions: net balance = previous + current
+      netBalance = previousAmount + currentAmount;
+    } else {
+      // For debit transactions: net balance = previous (debit doesn't affect balance)
+      netBalance = previousAmount;
+    }
+
+    // ✅ FIXED: Ensure no negative values on receipt
+    final displayPreviousAmount = previousAmount < 0 ? 0.0 : previousAmount;
+    final displayCurrentAmount = currentAmount < 0 ? 0.0 : currentAmount;
+    final displayNetBalance = netBalance < 0 ? 0.0 : netBalance;
+    final displayPreviousCans = previousCans < 0 ? 0.0 : previousCans;
+    final displayCurrentCans = currentCans < 0 ? 0.0 : currentCans;
+    final displayTotalCans = totalCans < 0 ? 0.0 : totalCans;
+    final displayReceivedCans = receivedCans < 0 ? 0.0 : receivedCans;
+    final displayBalanceCans = balanceCans < 0 ? 0.0 : balanceCans;
 
     final data = ReceiptData(
       companyName: 'NAZ ENTERPRISES',
-      date: DateFormat(
-        'dd/MM/yyyy',
-      ).format(ledgerTableController.filteredLedgerEntries.last.date),
+      date: DateFormat('dd/MM/yyyy').format(voucherDate),
       customerName: accountName,
       customerAddress: customer?.address ?? '',
       vehicleNumber: vehicleNo,
-      voucherNumber: ledgerTableController.filteredLedgerEntries.last.voucherNo,
+      voucherNumber: voucherNo,
       items: items,
-      previousCans: previousCans,
-      currentCans: currentCans,
-      totalCans: safeParseDouble(ledgerTableController.balanceCans),
-      receivedCans: receivedCans,
-      balanceCans: balanceCans,
-      currentAmount: currentAmount,
-      previousAmount: previousAmount,
-      netBalance: ledgerTableController.netBalance,
+      previousCans: displayPreviousCans,
+      currentCans: displayCurrentCans,
+      totalCans: displayTotalCans,
+      receivedCans: displayReceivedCans,
+      balanceCans: displayBalanceCans,
+      currentAmount: displayCurrentAmount,
+      previousAmount: displayPreviousAmount,
+      netBalance: displayNetBalance,
     );
 
-    // ✅ REMOVE .then() - just await the print operation
     await ReceiptPdfGenerator.generateAndPrint(data, showLogo: showLogo);
-    // Navigation is now handled in the dialog button callbacks
   }
 
   double getNetBalance(

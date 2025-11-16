@@ -15,7 +15,6 @@ import 'package:ledger_master/features/ledger/ledger_home.dart';
 import 'package:ledger_master/features/ledger/ledger_repository.dart';
 import 'package:ledger_master/features/purchases_expenses/purchase_and_expense_list_and_form.dart';
 import 'package:ledger_master/features/sales_invoicing/invoice_list.dart';
-import 'package:ledger_master/shared/components/constants.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -147,7 +146,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () {
-          themeController.toggleTheme();
+          // themeController.toggleTheme();
           // isClickable ? NavigationHelper.push(context, ItemList()) : null;
         },
         child: Container(
@@ -265,37 +264,34 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget buildSalesTrendChart(List<Map<String, dynamic>> salesData) {
     final ledgerController = Get.find<LedgerController>();
-
     if (salesData.isEmpty) {
       return const Center(child: Text('No sales data available.'));
     }
-
     // Convert the SQL "YYYY-MM" to formatted labels & numeric data
     final spots = <FlSpot>[];
     final monthLabels = <String>[];
-
     for (var i = 0; i < salesData.length; i++) {
       final entry = salesData[i];
       final monthStr = entry['month']?.toString() ?? '';
       final total = (entry['total_sales'] as num?)?.toDouble() ?? 0.0;
-
       DateTime? date;
       try {
         date = DateTime.parse('$monthStr-01'); // e.g. "2025-11-01"
       } catch (_) {}
-
       // ✅ Show only short month name
       final label = date != null
           ? ledgerController.monthShortNames[date.month - 1]
           : monthStr;
-
       monthLabels.add(label);
       spots.add(FlSpot(i.toDouble(), total));
     }
-
-    final maxY = (spots.map((e) => e.y).reduce((a, b) => a > b ? a : b)) * 1.2;
+    // Calculate maxY with fallback to prevent zero interval
+    double maxYValue = 0.0;
+    if (spots.isNotEmpty) {
+      maxYValue = spots.map((e) => e.y).reduce((a, b) => a > b ? a : b);
+    }
+    final maxY = maxYValue > 0 ? maxYValue * 1.2 : 1.0;
     final interval = maxY / 5;
-
     return Card(
       elevation: 4, // Subtle for light theme
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -756,7 +752,7 @@ class _BaseLayoutState extends State<BaseLayout> {
             widget.appBarTitle,
             style: Theme.of(context).textTheme.titleLarge,
           ),
-          actions: [ThemeToggleButton(showText: false)],
+          // actions: [ThemeToggleButton(showText: false)],
           backgroundColor: Theme.of(
             context,
           ).colorScheme.primaryContainer, // Light blue tint

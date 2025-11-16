@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:ledger_master/core/models/ledger.dart';
+import 'package:ledger_master/features/customer_vendor/customer_ledger_table.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/features/ledger/ledger_repository.dart';
 import 'package:ledger_master/main.dart';
@@ -12,12 +13,27 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/models/customer.dart';
 import 'customer_add_edit.dart';
 
-class CustomerList extends StatelessWidget {
+class CustomerList extends StatefulWidget {
   const CustomerList({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  State<CustomerList> createState() => _CustomerListState();
+}
+
+class _CustomerListState extends State<CustomerList> {
+  @override
+  void initState() {
+    super.initState();
     final controller = Get.find<CustomerController>();
+    controller.clearSearch();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.loadRecentSearches();
+      controller.fetchCustomers();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     int gridAxisCount = 0;
     switch (MediaQuery.of(context).size.width ~/ 200) {
       case 1:
@@ -39,156 +55,7 @@ class CustomerList extends StatelessWidget {
         gridAxisCount = 5;
     }
 
-    void showCustomerDetailsDialog(Customer customer) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(
-            'Customer Details - ${customer.customerNo}',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Name: ${customer.name}',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                Text(
-                  'Customer No: ${customer.customerNo}',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                Text(
-                  'Address: ${customer.address}',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                Text(
-                  'Mobile No: ${customer.mobileNo}',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                Text(
-                  'NTN No: ${customer.ntnNo}',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 6.0,
-                    horizontal: 6.0,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                      width: 1,
-                    ),
-                  ),
-                  child: FutureBuilder<DebitCreditSummary>(
-                    future: controller.getCustomerDebitCredit(
-                      customer.name,
-                      customer.type,
-                    ),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const SizedBox(height: 20, width: 20);
-                      }
-
-                      if (snapshot.hasError) {
-                        return Text(
-                          'Error: ${snapshot.error}',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        );
-                      }
-
-                      if (!snapshot.hasData) {
-                        return const Text('No data');
-                      }
-
-                      final summary = snapshot.data!;
-
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          FutureBuilder(
-                            future: CustomerRepository()
-                                .getOpeningBalanceForCustomer(customer.name),
-                            builder: (context, snapshot) {
-                              if (snapshot.connectionState ==
-                                  ConnectionState.waiting) {
-                                return const SizedBox(height: 20, width: 20);
-                              }
-                              return snapshot.data != 0 || snapshot.data != 0.0
-                                  ? Text(
-                                      "Opening Balance: ${NumberFormat('#,##0').format(snapshot.data)}",
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall!
-                                          .copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.error,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
-                                    )
-                                  : SizedBox.shrink();
-                            },
-                          ),
-                          Text(
-                            'Credit: ${summary.credit}',
-                            style: Theme.of(context).textTheme.bodySmall!
-                                .copyWith(
-                                  color: Theme.of(context).colorScheme.error,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                          Text(
-                            'Debit: ${summary.debit}',
-                            style: Theme.of(context).textTheme.bodySmall!
-                                .copyWith(
-                                  color: const Color(0xFF2E7D32),
-                                  fontWeight: FontWeight.bold,
-                                ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Close',
-                style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.8),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((callBack) {
-      controller.loadRecentSearches();
-      controller.fetchCustomers();
-    });
-    controller.clearSearch();
+    final controller = Get.find<CustomerController>();
     return Obx(
       () => Stack(
         children: [
@@ -206,15 +73,16 @@ class CustomerList extends StatelessWidget {
                     optionsBuilder: (TextEditingValue textEditingValue) {
                       final q = textEditingValue.text.trim().toLowerCase();
                       if (q.isEmpty) {
-                        return controller.recentSearches;
+                        return Get.find<CustomerController>().recentSearches;
                       }
-                      return controller.recentSearches.where(
-                        (search) => search.toLowerCase().contains(q),
-                      );
+                      return Get.find<CustomerController>().recentSearches
+                          .where((search) => search.toLowerCase().contains(q));
                     },
                     onSelected: (String value) async {
-                      controller.searchQuery.value = value;
-                      await controller.saveRecentSearch(value);
+                      Get.find<CustomerController>().searchQuery.value = value;
+                      await Get.find<CustomerController>().saveRecentSearch(
+                        value,
+                      );
                     },
                     fieldViewBuilder:
                         (
@@ -255,19 +123,22 @@ class CustomerList extends StatelessWidget {
                                             ),
                                             onPressed: () {
                                               textEditingController.clear();
-                                              controller.clearSearch();
+                                              Get.find<CustomerController>()
+                                                  .clearSearch();
                                             },
                                           )
                                         : const SizedBox.shrink(),
                                   ),
                             ),
                             onChanged: (value) {
-                              controller.searchQuery.value = value;
+                              Get.find<CustomerController>().searchQuery.value =
+                                  value;
                             },
                             onSubmitted: (value) async {
                               onFieldSubmitted();
                               if (value.trim().isNotEmpty) {
-                                await controller.saveRecentSearch(value.trim());
+                                await Get.find<CustomerController>()
+                                    .saveRecentSearch(value.trim());
                               }
                             },
                           );
@@ -328,8 +199,22 @@ class CustomerList extends StatelessWidget {
                                       ),
                                     ),
                                     child: InkWell(
-                                      onTap: () =>
-                                          showCustomerDetailsDialog(customer),
+                                      onTap: () {
+                                        if (customer.type.toLowerCase() ==
+                                            'customer') {
+                                          NavigationHelper.push(
+                                            context,
+                                            CustomerLedgerTablePage(
+                                              customer: customer,
+                                            ),
+                                          );
+                                        } else {
+                                          showCustomerDetailsDialog(
+                                            customer,
+                                            controller,
+                                          );
+                                        }
+                                      },
                                       borderRadius: BorderRadius.circular(12),
                                       child: Padding(
                                         padding: const EdgeInsets.all(8.0),
@@ -400,133 +285,150 @@ class CustomerList extends StatelessWidget {
                                                               4,
                                                             ),
                                                       ),
-                                                      child: FutureBuilder<DebitCreditSummary>(
-                                                        future: controller
-                                                            .getCustomerDebitCredit(
+                                                      child: FutureBuilder<double>(
+                                                        future: CustomerRepository()
+                                                            .getOpeningBalanceForCustomer(
                                                               customer.name,
-                                                              customer.type,
                                                             ),
-                                                        builder: (context, snapshot) {
-                                                          if (snapshot
-                                                                  .connectionState ==
-                                                              ConnectionState
-                                                                  .waiting) {
-                                                            return const SizedBox(
-                                                              height: 20,
-                                                              width: 20,
-                                                            );
-                                                          }
+                                                        builder: (context, snapshott) {
+                                                          return FutureBuilder<
+                                                            DebitCreditSummary
+                                                          >(
+                                                            future: controller
+                                                                .getCustomerDebitCredit(
+                                                                  customer.name,
+                                                                  customer.type,
+                                                                  customer.id!,
+                                                                ),
+                                                            builder: (context, snapshot) {
+                                                              if (snapshot
+                                                                      .connectionState ==
+                                                                  ConnectionState
+                                                                      .waiting) {
+                                                                return const SizedBox(
+                                                                  height: 20,
+                                                                  width: 20,
+                                                                );
+                                                              }
 
-                                                          if (snapshot
-                                                              .hasError) {
-                                                            return Text(
-                                                              'Error: ${snapshot.error}',
-                                                              style: TextStyle(
-                                                                color: Theme.of(
-                                                                  context,
-                                                                ).colorScheme.error,
-                                                              ),
-                                                            );
-                                                          }
-
-                                                          if (!snapshot
-                                                              .hasData) {
-                                                            return const Text(
-                                                              'No data',
-                                                            );
-                                                          }
-
-                                                          final summary =
-                                                              snapshot.data!;
-
-                                                          return Column(
-                                                            mainAxisSize:
-                                                                MainAxisSize
-                                                                    .min,
-                                                            crossAxisAlignment:
-                                                                CrossAxisAlignment
-                                                                    .start,
-                                                            children: [
-                                                              FutureBuilder(
-                                                                future: CustomerRepository()
-                                                                    .getOpeningBalanceForCustomer(
-                                                                      customer
-                                                                          .name,
-                                                                    ),
-                                                                builder:
-                                                                    (
+                                                              if (snapshot
+                                                                  .hasError) {
+                                                                return Text(
+                                                                  'Error: ${snapshot.error}',
+                                                                  style: TextStyle(
+                                                                    color: Theme.of(
                                                                       context,
-                                                                      snapshot,
-                                                                    ) {
-                                                                      if (snapshot
-                                                                              .connectionState ==
-                                                                          ConnectionState
-                                                                              .waiting) {
-                                                                        return const SizedBox(
-                                                                          height:
-                                                                              20,
-                                                                          width:
-                                                                              20,
-                                                                        );
-                                                                      }
-                                                                      return snapshot.data !=
-                                                                                  0 ||
-                                                                              snapshot.data !=
-                                                                                  0.0
-                                                                          ? Text(
-                                                                              "Opening Bal: ${NumberFormat('#,##0').format(snapshot.data)}",
-                                                                              style:
-                                                                                  Theme.of(
+                                                                    ).colorScheme.error,
+                                                                  ),
+                                                                );
+                                                              }
+
+                                                              if (!snapshot
+                                                                  .hasData) {
+                                                                return const Text(
+                                                                  'No data',
+                                                                );
+                                                              }
+
+                                                              final summary =
+                                                                  snapshot
+                                                                      .data!;
+
+                                                              return Column(
+                                                                mainAxisSize:
+                                                                    MainAxisSize
+                                                                        .min,
+                                                                crossAxisAlignment:
+                                                                    CrossAxisAlignment
+                                                                        .start,
+                                                                children: [
+                                                                  if (snapshott
+                                                                          .connectionState ==
+                                                                      ConnectionState
+                                                                          .waiting)
+                                                                    const SizedBox(
+                                                                      height:
+                                                                          20,
+                                                                      width: 20,
+                                                                    )
+                                                                  else
+                                                                    snapshott.data !=
+                                                                                0 ||
+                                                                            snapshott.data !=
+                                                                                0.0
+                                                                        ? Text(
+                                                                            "Opening Bal: ${NumberFormat('#,##0').format(snapshott.data)}",
+                                                                            style:
+                                                                                Theme.of(
+                                                                                  context,
+                                                                                ).textTheme.bodySmall!.copyWith(
+                                                                                  color: Theme.of(
                                                                                     context,
-                                                                                  ).textTheme.bodySmall!.copyWith(
-                                                                                    color: Theme.of(
-                                                                                      context,
-                                                                                    ).colorScheme.error,
-                                                                                    fontWeight: FontWeight.bold,
-                                                                                  ),
-                                                                              overflow: TextOverflow.ellipsis,
-                                                                              maxLines: 1,
-                                                                            )
-                                                                          : SizedBox.shrink();
-                                                                    },
-                                                              ),
-                                                              Text(
-                                                                'Credit: ${summary.credit}',
-                                                                style: Theme.of(context)
-                                                                    .textTheme
-                                                                    .bodySmall!
-                                                                    .copyWith(
-                                                                      color: Theme.of(
-                                                                        context,
-                                                                      ).colorScheme.error,
-                                                                      fontWeight:
-                                                                          FontWeight
-                                                                              .bold,
-                                                                    ),
-                                                                overflow:
-                                                                    TextOverflow
-                                                                        .ellipsis,
-                                                                maxLines: 1,
-                                                              ),
-                                                              Text(
-                                                                'Debit: ${summary.debit}',
-                                                                style: Theme.of(context)
-                                                                    .textTheme
-                                                                    .bodySmall!
-                                                                    .copyWith(
-                                                                      color: const Color(
-                                                                        0xFF2E7D32,
-                                                                      ),
-                                                                      fontWeight:
-                                                                          FontWeight
-                                                                              .bold,
-                                                                    ),
-                                                                overflow:
-                                                                    TextOverflow
-                                                                        .ellipsis,
-                                                                maxLines: 1,
-                                                              ),
-                                                            ],
+                                                                                  ).colorScheme.error,
+                                                                                  fontWeight: FontWeight.bold,
+                                                                                ),
+                                                                            overflow:
+                                                                                TextOverflow.ellipsis,
+                                                                            maxLines:
+                                                                                1,
+                                                                          )
+                                                                        : SizedBox.shrink(),
+                                                                  Text(
+                                                                    'Net Balance: ${NumberFormat('#,##0').format(((double.parse(summary.credit) + (snapshott.data ?? 0)) - double.parse(summary.debit)).clamp(0, double.infinity))}',
+
+                                                                    style: Theme.of(context)
+                                                                        .textTheme
+                                                                        .bodySmall!
+                                                                        .copyWith(
+                                                                          color: Theme.of(
+                                                                            context,
+                                                                          ).colorScheme.error,
+                                                                          fontWeight:
+                                                                              FontWeight.bold,
+                                                                        ),
+                                                                    overflow:
+                                                                        TextOverflow
+                                                                            .ellipsis,
+                                                                    maxLines: 1,
+                                                                  ),
+                                                                  Text(
+                                                                    'Credit: ${NumberFormat('#,##0').format(double.parse(summary.credit))}',
+
+                                                                    style: Theme.of(context)
+                                                                        .textTheme
+                                                                        .bodySmall!
+                                                                        .copyWith(
+                                                                          color: Theme.of(
+                                                                            context,
+                                                                          ).colorScheme.error,
+                                                                          fontWeight:
+                                                                              FontWeight.bold,
+                                                                        ),
+                                                                    overflow:
+                                                                        TextOverflow
+                                                                            .ellipsis,
+                                                                    maxLines: 1,
+                                                                  ),
+                                                                  Text(
+                                                                    'Debit: ${NumberFormat('#,##0').format(double.parse(summary.debit))}',
+                                                                    style: Theme.of(context)
+                                                                        .textTheme
+                                                                        .bodySmall!
+                                                                        .copyWith(
+                                                                          color: const Color(
+                                                                            0xFF2E7D32,
+                                                                          ),
+                                                                          fontWeight:
+                                                                              FontWeight.bold,
+                                                                        ),
+                                                                    overflow:
+                                                                        TextOverflow
+                                                                            .ellipsis,
+                                                                    maxLines: 1,
+                                                                  ),
+                                                                ],
+                                                              );
+                                                            },
                                                           );
                                                         },
                                                       ),
@@ -597,6 +499,7 @@ class CustomerList extends StatelessWidget {
             right: 8,
             child: FloatingActionButton(
               onPressed: () async {
+                final controller = Get.find<CustomerController>();
                 await controller.loadCustomer();
                 if (context.mounted) {
                   NavigationHelper.push(context, const CustomerAddEdit());
@@ -604,6 +507,171 @@ class CustomerList extends StatelessWidget {
                 await controller.fetchCustomers();
               },
               child: const Icon(Icons.add),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void showCustomerDetailsDialog(
+    Customer customer,
+    CustomerController controller,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'Customer Details - ${customer.customerNo}',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Name: ${customer.name}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              Text(
+                'Customer No: ${customer.customerNo}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              Text(
+                'Address: ${customer.address}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              Text(
+                'Mobile No: ${customer.mobileNo}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              Text(
+                'NTN No: ${customer.ntnNo}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 6.0,
+                  horizontal: 6.0,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    width: 1,
+                  ),
+                ),
+                child: FutureBuilder<DebitCreditSummary>(
+                  future: controller.getCustomerDebitCredit(
+                    customer.name,
+                    customer.type,
+                    customer.id!,
+                  ),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const SizedBox(height: 20, width: 20);
+                    }
+
+                    if (snapshot.hasError) {
+                      return Text(
+                        'Error: ${snapshot.error}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      );
+                    }
+
+                    if (!snapshot.hasData) {
+                      return const Text('No data');
+                    }
+
+                    final summary = snapshot.data!;
+
+                    return FutureBuilder<double>(
+                      future: CustomerRepository().getOpeningBalanceForCustomer(
+                        customer.name,
+                      ),
+                      builder: (context, snapshott) {
+                        if (snapshott.connectionState ==
+                            ConnectionState.waiting) {
+                          return const SizedBox(height: 20, width: 20);
+                        }
+
+                        if (snapshott.hasError || !snapshott.hasData) {
+                          return const Text('No opening balance data');
+                        }
+
+                        final openingBalance = snapshott.data ?? 0.0;
+
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (openingBalance != 0)
+                              Text(
+                                "Opening Balance: ${NumberFormat('#,##0').format(openingBalance)}",
+                                style: Theme.of(context).textTheme.bodySmall!
+                                    .copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.error,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            Text(
+                              'Net Balance: ${NumberFormat('#,##0').format((double.parse(summary.credit) + openingBalance - double.parse(summary.debit)).clamp(0, double.infinity))}',
+
+                              style: Theme.of(context).textTheme.bodySmall!
+                                  .copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                            Text(
+                              'Credit: ${summary.credit}',
+                              style: Theme.of(context).textTheme.bodySmall!
+                                  .copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                            Text(
+                              'Debit: ${summary.debit}',
+                              style: Theme.of(context).textTheme.bodySmall!
+                                  .copyWith(
+                                    color: const Color(0xFF2E7D32),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Close',
+              style: Theme.of(context).textTheme.bodyMedium!.copyWith(
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.8),
+              ),
             ),
           ),
         ],
@@ -643,8 +711,8 @@ class CustomerController extends GetxController {
   void onInit() {
     super.onInit();
     loadTheme();
-    fetchCustomers();
-    loadRecentSearches();
+    // Removed fetchCustomers() and loadRecentSearches() from onInit to avoid initial load;
+    // these are now handled per-widget visit in initState for fresh loads each time
 
     // Listen to search query changes
     ever(searchQuery, (query) => filterCustomers(query));
@@ -739,23 +807,37 @@ class CustomerController extends GetxController {
   }
 
   /// ✅ FIXED: Get customer/vendor debit/credit with proper vendor matching
+  /// ✅ FIXED: Get customer/vendor debit/credit with proper calculations
   Future<DebitCreditSummary> getCustomerDebitCredit(
     String customerName,
     String type,
+    int customerId,
   ) async {
     double debit = 0.0;
     double credit = 0.0;
 
     try {
       if (type != 'Vendor') {
-        // For customers - use regular ledger entries
+        // For customers - use regular ledger entries (stored locally)
         final entries = getLedgerEntriesForCustomer(customerName);
 
         for (final entry in entries) {
           debit += entry.debit;
           credit += entry.credit;
         }
+
+        // ALSO fetch from customer ledger table
+        final ledgerTotals = await CustomerLedgerRepository()
+            .fetchTotalDebitAndCredit(customerName, customerId);
+
+        final customerLedgerDebit = double.tryParse(ledgerTotals.debit) ?? 0.0;
+        final customerLedgerCredit =
+            double.tryParse(ledgerTotals.credit) ?? 0.0;
+
+        debit += customerLedgerDebit;
+        credit += customerLedgerCredit;
       } else {
+        // For vendors - fetch vendor ledger entries
         final entries = await LedgerRepository().getLedgerEntriesByVendor(
           customerName,
         );
@@ -764,20 +846,26 @@ class CustomerController extends GetxController {
           debit += entry.debit;
           credit += entry.credit;
         }
+
+        // ALSO fetch customer ledger table totals
+        final debitAndCredit = await CustomerLedgerRepository()
+            .fetchTotalDebitAndCredit(customerName, customerId);
+
+        final customerLedgerDebit =
+            double.tryParse(debitAndCredit.debit) ?? 0.0;
+        final customerLedgerCredit =
+            double.tryParse(debitAndCredit.credit) ?? 0.0;
+
+        // ✅ FIX: For vendors, add both debit and credit properly
+        debit += customerLedgerDebit;
+        credit += customerLedgerCredit; // ✅ FIXED: Was subtracting debit!
       }
-
-      final formatter = NumberFormat('#,##0');
-      final debitFormatted = formatter.format(debit);
-      final creditFormatted = formatter.format(credit);
-
-      return DebitCreditSummary(debit: debitFormatted, credit: creditFormatted);
-    } catch (e) {
-      // Return zero values on error
-      final formatter = NumberFormat('#,##0');
       return DebitCreditSummary(
-        debit: formatter.format(0.0),
-        credit: formatter.format(0.0),
+        debit: debit.toString(),
+        credit: credit.toString(),
       );
+    } catch (e) {
+      return DebitCreditSummary(debit: 0.0.toString(), credit: 0.0.toString());
     }
   }
 

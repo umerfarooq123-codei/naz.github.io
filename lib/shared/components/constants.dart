@@ -1,9 +1,154 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:ledger_master/core/models/customer.dart';
 import 'package:ledger_master/core/models/item.dart';
 import 'package:ledger_master/core/models/ledger.dart';
 import 'package:ledger_master/main.dart';
+
+void showCustomerLedgerEntryDialog(
+  BuildContext context,
+  CustomerLedgerEntry entry,
+) {
+  final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
+
+  showDialog(
+    context: context,
+    barrierDismissible: true,
+    builder: (context) {
+      return Dialog(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 600, maxWidth: 500),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Customer Ledger Entry Details",
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.close,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+                Divider(color: Theme.of(context).colorScheme.outlineVariant),
+                const SizedBox(height: 8),
+
+                // Scrollable content
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _entryRow(context, "Voucher No", entry.voucherNo),
+                        _entryRow(context, "Customer Name", entry.customerName),
+                        _entryRow(
+                          context,
+                          "Date",
+                          dateFormat.format(entry.date),
+                        ),
+                        _entryRow(
+                          context,
+                          "Transaction Type",
+                          entry.transactionType,
+                        ),
+                        _entryRow(
+                          context,
+                          "Debit",
+                          entry.debit.toStringAsFixed(2),
+                        ),
+                        _entryRow(
+                          context,
+                          "Credit",
+                          entry.credit.toStringAsFixed(2),
+                        ),
+                        _entryRow(
+                          context,
+                          "Balance",
+                          entry.balance.toStringAsFixed(2),
+                        ),
+                        _entryRow(context, "Description", entry.description),
+                        _entryRow(
+                          context,
+                          "Payment Method",
+                          entry.paymentMethod ?? "-",
+                        ),
+                        _entryRow(context, "Bank Name", entry.bankName ?? "-"),
+                        _entryRow(context, "Cheque No", entry.chequeNo ?? "-"),
+                        _entryRow(
+                          context,
+                          "Cheque Amount",
+                          entry.chequeAmount?.toStringAsFixed(2) ?? "-",
+                        ),
+                        _entryRow(
+                          context,
+                          "Cheque Date",
+                          entry.chequeDate != null
+                              ? dateFormat.format(entry.chequeDate!)
+                              : "-",
+                        ),
+                        const SizedBox(height: 12),
+                        Divider(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        const SizedBox(height: 12),
+                        _entryRow(
+                          context,
+                          "Created At",
+                          dateFormat.format(entry.createdAt),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Footer
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: Icon(
+                      Icons.check_circle_outline,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    label: Text(
+                      "Close",
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
 
 void showLedgerEntryDialog(BuildContext context, LedgerEntry entry) {
   final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
@@ -505,4 +650,30 @@ class ThemeToggleButton extends StatelessWidget {
       );
     });
   }
+}
+
+Widget totalBox(String label, double value, BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(8),
+      color: isDark
+          ? Theme.of(context).colorScheme.surface
+          : Theme.of(context).colorScheme.primaryContainer,
+      border: Border.all(
+        color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+        width: 1,
+      ),
+    ),
+    child: Text(
+      "$label: ${NumberFormat('#,##0', 'en_US').format(value)}",
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+        fontWeight: FontWeight.w600,
+        color: isDark
+            ? Theme.of(context).colorScheme.onSurface
+            : Theme.of(context).colorScheme.onPrimaryContainer,
+      ),
+    ),
+  );
 }

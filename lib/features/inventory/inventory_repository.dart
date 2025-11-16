@@ -43,9 +43,6 @@ class InventoryRepository {
   }) async {
     final db = await _dbHelper.database;
 
-    print("\n🔍 --- updateItemStock START ---");
-    print("📦 Input → itemId=$itemId | type=$transactionType | qty=$quantity");
-
     final itemMap = await db.query(
       'item',
       where: 'id = ?',
@@ -53,20 +50,12 @@ class InventoryRepository {
     );
 
     if (itemMap.isEmpty) {
-      print("⚠️ Item not found!");
       return 0;
     }
 
     final item = Item.fromMap(itemMap.first);
-    print("📦 Current availableStock: ${item.availableStock}");
-
     // All entries ADD stock (purchase/incoming)
     double newStock = item.availableStock + quantity;
-
-    print(
-      "➕ Adding $quantity to stock (transactionType=$transactionType is for payment only)",
-    );
-    print("🧮 New availableStock: $newStock (was ${item.availableStock})");
 
     final result = await db.update(
       'item',
@@ -75,9 +64,7 @@ class InventoryRepository {
       whereArgs: [itemId],
     );
 
-    final verify = await db.query('item', where: 'id = ?', whereArgs: [itemId]);
-    print("✅ Updated: ${verify.first}");
-    print("🔚 --- updateItemStock END ---\n");
+    await db.query('item', where: 'id = ?', whereArgs: [itemId]);
 
     return result;
   }
@@ -92,9 +79,6 @@ class InventoryRepository {
   }) async {
     final db = await _dbHelper.database;
 
-    print("\n📒 --- updateVendorLedger START ---");
-    print("👤 Vendor: $vendorName | Type: $transactionType | Amount: $amount");
-
     try {
       // Get vendor to find their ledger
       final vendorResult = await db.query(
@@ -105,7 +89,6 @@ class InventoryRepository {
       );
 
       if (vendorResult.isEmpty) {
-        print("⚠️ Vendor not found");
         return;
       }
 
@@ -113,7 +96,6 @@ class InventoryRepository {
       final customerNo = vendorMap['customerNo'] as String?;
 
       if (customerNo == null) {
-        print("⚠️ Vendor has no customerNo");
         return;
       }
 
@@ -126,12 +108,10 @@ class InventoryRepository {
       );
 
       if (ledgerResult.isEmpty) {
-        print("ℹ️ No ledger found for vendor - skipping ledger entry");
         return;
       }
 
       final ledgerNo = ledgerResult.first['ledgerNo'] as String;
-      print("📘 Found ledger: $ledgerNo");
 
       // Create ledger entry table if not exists
       await _dbHelper.createLedgerEntryTable(ledgerNo);
@@ -154,8 +134,6 @@ class InventoryRepository {
         }
       }
 
-      print("📊 Previous ledger balance: $previousBalance");
-
       // Calculate new balance
       double debit = 0.0;
       double credit = 0.0;
@@ -164,11 +142,9 @@ class InventoryRepository {
       if (transactionType == "Credit") {
         credit = amount;
         newBalance = previousBalance + credit;
-        print("➕ Adding credit: $previousBalance + $credit = $newBalance");
       } else if (transactionType == "Debit") {
         debit = amount;
         newBalance = previousBalance + debit;
-        print("➕ Adding debit: $previousBalance + $debit = $newBalance");
       }
 
       // Insert ledger entry
@@ -193,9 +169,6 @@ class InventoryRepository {
       };
 
       await db.insert(tableName, entry);
-      print(
-        "✅ Ledger entry created: debit=$debit, credit=$credit, balance=$newBalance",
-      );
 
       // Update main ledger table totals
       await db.rawUpdate(
@@ -208,8 +181,6 @@ class InventoryRepository {
       ''',
         [debit, credit, DateTime.now().toIso8601String(), ledgerNo],
       );
-
-      print("🔚 --- updateVendorLedger END ---\n");
     } catch (e, st) {
       print("❌ Error updating vendor ledger: $e");
       print(st);
@@ -356,24 +327,19 @@ class InventoryRepository {
     final safeLedgerNo = sanitizeIdentifier(ledgerNo);
     final tableName = 'item_ledger_entries_$safeLedgerNo';
 
-    print("\n🗑️ === DELETE ENTRY START ===");
-
     final entryRows = await db.query(
       tableName,
       where: 'id = ?',
       whereArgs: [id],
     );
     if (entryRows.isEmpty) {
-      print("❌ Entry $id not found");
       return 0;
     }
 
     final entry = ItemLedgerEntry.fromMap(entryRows.first);
-    print("📄 Deleting entry: ${entry.toMap()}");
 
     final item = await getItemById(entry.itemId!);
     if (item == null) {
-      print("❌ Item not found for entry");
       return 0;
     }
 
@@ -382,10 +348,6 @@ class InventoryRepository {
     final amount = entry.transactionType == "Credit"
         ? entry.credit
         : entry.debit;
-
-    print(
-      "🔄 Reversing vendor balance: $reverseType $amount for ${item.vendor}",
-    );
 
     // ✅ Reverse vendor ledger entry
     await updateVendorLedger(
@@ -398,7 +360,6 @@ class InventoryRepository {
 
     // Remove stock
     final qtyToRemove = entry.newStock;
-    print("🔄 Removing $qtyToRemove from stock");
 
     final itemMap = await db.query(
       'item',
@@ -416,7 +377,6 @@ class InventoryRepository {
         where: 'id = ?',
         whereArgs: [entry.itemId],
       );
-      print("📦 Stock updated: ${currentItem.availableStock} → $newStock");
     }
 
     final deleteResult = await db.delete(
@@ -424,11 +384,9 @@ class InventoryRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
-    print("🗑️ Deleted | rows=$deleteResult");
 
     await updateItemFieldsAfterDeletion(ledgerNo: ledgerNo);
 
-    print("🔚 === DELETE ENTRY END ===\n");
     return deleteResult;
   }
 
@@ -437,23 +395,18 @@ class InventoryRepository {
     final safeLedgerNo = sanitizeIdentifier(ledgerNo);
     final tableName = 'item_ledger_entries_$safeLedgerNo';
 
-    print("\n🔄 === UPDATE FIELDS AFTER DELETION START ===");
-
     try {
       final idMatch = RegExp(r'_(\d+)$').firstMatch(ledgerNo);
       if (idMatch == null) {
-        print("❌ Can't extract itemId from $ledgerNo");
         return;
       }
       final itemId = int.parse(idMatch.group(1)!);
-      print("🆔 ItemId: $itemId");
 
       final tableCheck = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         [tableName],
       );
       if (tableCheck.isEmpty) {
-        print("⚠️ Table doesn't exist");
         return;
       }
 
@@ -464,11 +417,7 @@ class InventoryRepository {
         orderBy: 'id ASC',
       );
 
-      print("📊 Remaining entries: ${entries.length}");
-
       if (entries.isEmpty) {
-        print("🟡 NO ENTRIES → Resetting 5 fields to 0");
-
         await db.update(
           'item',
           {
@@ -482,17 +431,10 @@ class InventoryRepository {
           whereArgs: [itemId],
         );
 
-        final verify = await db.query(
-          'item',
-          where: 'id = ?',
-          whereArgs: [itemId],
-        );
-        print("✅ Reset complete: ${verify.first}");
-        print("🔚 === UPDATE FIELDS END ===\n");
+        await db.query('item', where: 'id = ?', whereArgs: [itemId]);
+
         return;
       }
-
-      print("🟢 ENTRIES EXIST → Preserving pricing fields");
 
       final itemData = await db.query(
         'item',
@@ -500,7 +442,6 @@ class InventoryRepository {
         whereArgs: [itemId],
       );
       if (itemData.isEmpty) {
-        print("❌ Item not found");
         return;
       }
       final currentItem = Item.fromMap(itemData.first);
@@ -518,13 +459,7 @@ class InventoryRepository {
         whereArgs: [itemId],
       );
 
-      final verify = await db.query(
-        'item',
-        where: 'id = ?',
-        whereArgs: [itemId],
-      );
-      print("✅ Fields preserved: ${verify.first}");
-      print("🔚 === UPDATE FIELDS END ===\n");
+      await db.query('item', where: 'id = ?', whereArgs: [itemId]);
     } catch (e, st) {
       print("❌ Exception: $e");
       print(st);

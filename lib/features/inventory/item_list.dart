@@ -2008,30 +2008,22 @@ class LedgerTablePage extends StatelessWidget {
                 children: [
                   totalBox("Total Debit", controller.totalDebit, context),
                   const SizedBox(width: 16),
-                  totalBox("Net Balance", controller.netBalance, context),
+                  totalBox("Total Credit", controller.totalCredit, context),
+                  const SizedBox(width: 16),
+                  totalBox(
+                    "Net Balance",
+                    (controller.totalCredit - controller.totalDebit).clamp(
+                      0,
+                      double.infinity,
+                    ),
+                    context,
+                  ),
                 ],
               ),
             ),
           ],
         );
       }),
-    );
-  }
-
-  Widget totalBox(String label, double value, BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-      ),
-      child: Text(
-        "$label: ${NumberFormat('#,##0', 'en_US').format(value)}",
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          fontWeight: FontWeight.bold,
-          color: Theme.of(context).colorScheme.onSurface,
-        ),
-      ),
     );
   }
 
@@ -2200,23 +2192,23 @@ class LedgerEntryDataSource extends DataGridSource {
                                 ),
                               ),
                             ),
-                            Tooltip(
-                              message: "edit",
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(14),
-                                onTap: () => editEntry(entry, context),
-                                child: Padding(
-                                  padding: const EdgeInsets.only(right: 4.0),
-                                  child: Icon(
-                                    Icons.edit_outlined,
-                                    size: 16,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                ),
-                              ),
-                            ),
+                            // Tooltip(
+                            //   message: "edit",
+                            //   child: InkWell(
+                            //     borderRadius: BorderRadius.circular(14),
+                            //     onTap: () => editEntry(entry, context),
+                            //     child: Padding(
+                            //       padding: const EdgeInsets.only(right: 4.0),
+                            //       child: Icon(
+                            //         Icons.edit_outlined,
+                            //         size: 16,
+                            //         color: Theme.of(
+                            //           context,
+                            //         ).colorScheme.primary,
+                            //       ),
+                            //     ),
+                            //   ),
+                            // ),
                           ],
                         ),
                       ),
@@ -2972,6 +2964,18 @@ class ItemLedgerEntryAddEdit extends StatelessWidget {
                                                 .transactionTypeController
                                                 .text =
                                             value;
+
+                                        // ← ADD THIS: When transaction type changes, ensure proper zeroing
+                                        if (value == "Debit") {
+                                          // When switching to Debit, zero out credit
+                                          controller.creditController.text =
+                                              "0.00";
+                                        } else {
+                                          // When switching to Credit, zero out debit
+                                          controller.debitController.text =
+                                              "0.00";
+                                        }
+
                                         controller.updateTransactionFields();
                                       }
                                     },
@@ -2988,6 +2992,9 @@ class ItemLedgerEntryAddEdit extends StatelessWidget {
                                     controller: controller.debitController,
                                     focusNode: controller.debitFocusNode,
                                     label: 'Debit',
+                                    readOnly:
+                                        controller.transactionType.value ==
+                                        "Debit", // ← CHANGE: editable only when Credit
                                     keyboardType:
                                         const TextInputType.numberWithOptions(
                                           decimal: true,
@@ -3373,16 +3380,22 @@ class ItemLedgerEntryController extends GetxController {
   @override
   void onInit() async {
     super.onInit();
+    debugPrint("🎯 ItemLedgerEntryController.onInit() START");
+    debugPrint("📦 Current Item: ${currentItem.toMap()}");
+
     itemWeightCurrent.addListener(updateTransactionFields);
     debitController.addListener(updateTransactionFields);
     creditController.addListener(updateTransactionFields);
     unitPriceController.addListener(_updateSellingPrice);
     canWeightController.addListener(_updateSellingPrice);
     ever(transactionType, (String value) {
+      debugPrint("🔄 Transaction type changed to: $value");
       updateTransactionFields();
     });
 
     final updatedItem = await repo.getItemById(currentItem.id!);
+    debugPrint("🔍 Fetched updated item from DB: ${updatedItem?.toMap()}");
+
     if (updatedItem != null) {
       unitPriceController.text = updatedItem.pricePerKg != 0.0
           ? updatedItem.pricePerKg.toStringAsFixed(2)
@@ -3393,8 +3406,12 @@ class ItemLedgerEntryController extends GetxController {
       canWeightController.text = updatedItem.canWeight != 0.0
           ? updatedItem.canWeight.toStringAsFixed(2)
           : "";
+      debugPrint(
+        "💰 Set initial prices: unitPrice=${unitPriceController.text}, costPrice=${costPriceController.text}, canWeight=${canWeightController.text}",
+      );
       _updateSellingPrice();
     }
+    debugPrint("🎯 ItemLedgerEntryController.onInit() END\n");
   }
 
   bool arePriceFieldsValid() {
@@ -3402,7 +3419,9 @@ class ItemLedgerEntryController extends GetxController {
     final costPrice = double.tryParse(costPriceController.text) ?? 0.0;
     final sellingPrice = double.tryParse(sellingPriceController.text) ?? 0.0;
     final canWeight = double.tryParse(canWeightController.text) ?? 0.0;
-    return unitPrice != 0.0 &&
+
+    final isValid =
+        unitPrice != 0.0 &&
         costPrice != 0.0 &&
         sellingPrice != 0.0 &&
         canWeight != 0.0 &&
@@ -3410,13 +3429,25 @@ class ItemLedgerEntryController extends GetxController {
         costPriceController.text.isNotEmpty &&
         sellingPriceController.text.isNotEmpty &&
         canWeightController.text.isNotEmpty;
+
+    debugPrint(
+      "✅ arePriceFieldsValid: $isValid (unitPrice=$unitPrice, costPrice=$costPrice, sellingPrice=$sellingPrice, canWeight=$canWeight)",
+    );
+    return isValid;
   }
 
   void _updateSellingPrice() {
     if (_isUpdatingQty) return;
+    debugPrint("💲 _updateSellingPrice() called");
+
     final unitPrice = double.tryParse(unitPriceController.text) ?? 0.0;
     final canWeight = double.tryParse(canWeightController.text) ?? 0.0;
     final sellingPrice = unitPrice * canWeight;
+
+    debugPrint(
+      "   unitPrice=$unitPrice × canWeight=$canWeight = sellingPrice=$sellingPrice",
+    );
+
     sellingPriceController.text = sellingPrice != 0.0
         ? sellingPrice.toStringAsFixed(2)
         : "";
@@ -3424,8 +3455,19 @@ class ItemLedgerEntryController extends GetxController {
   }
 
   void updateTransactionFields() async {
-    if (_isUpdatingQty || _isUpdatingDebit || _isUpdatingCredit) return;
+    if (_isUpdatingQty || _isUpdatingDebit || _isUpdatingCredit) {
+      debugPrint("⏸️ updateTransactionFields() skipped - already updating");
+      return;
+    }
+
+    debugPrint("\n🔄 updateTransactionFields() START");
+    debugPrint("   Current transaction type: ${transactionType.value}");
+    debugPrint("   itemWeightCurrent: ${itemWeightCurrent.text}");
+    debugPrint("   debitController: ${debitController.text}");
+    debugPrint("   creditController: ${creditController.text}");
+
     if (!arePriceFieldsValid()) {
+      debugPrint("⚠️ Price fields not valid, only updating balance");
       updateBalance();
       return;
     }
@@ -3438,32 +3480,61 @@ class ItemLedgerEntryController extends GetxController {
     final unitPrice = double.tryParse(unitPriceController.text) ?? 0.0;
     final amount = qty * unitPrice;
 
+    debugPrint(
+      "   Calculated: qty=$qty × unitPrice=$unitPrice = amount=$amount",
+    );
+
     if (transactionType.value == "Debit") {
+      debugPrint("   📤 DEBIT transaction:");
       debitController.text = amount != 0.0 ? amount.toStringAsFixed(2) : "0.00";
       creditController.text = "0.00";
+      debugPrint(
+        "      Set debit=${debitController.text}, credit=${creditController.text}",
+      );
     } else {
+      debugPrint("   📥 CREDIT transaction:");
       creditController.text = amount != 0.0
           ? amount.toStringAsFixed(2)
           : "0.00";
-      debitController.text = "0.00";
+
+      if (debitController.text.isEmpty ||
+          (itemWeightCurrent.text.isNotEmpty &&
+              double.tryParse(debitController.text) != 0.0)) {
+        debugPrint(
+          "      Preserving manual debit edit: ${debitController.text}",
+        );
+      } else {
+        debitController.text = "0.00";
+        debugPrint("      Zeroed debit=${debitController.text}");
+      }
+      debugPrint(
+        "      Set credit=${creditController.text}, debit=${debitController.text}",
+      );
     }
 
     _isUpdatingQty = false;
     _isUpdatingDebit = false;
     _isUpdatingCredit = false;
+
+    debugPrint("🔄 updateTransactionFields() END\n");
     updateBalance();
   }
 
   void updateBalance() {
-    // final debit = double.tryParse(debitController.text) ?? 0.0;
+    debugPrint("💰 updateBalance() called");
     final credit = double.tryParse(creditController.text) ?? 0.0;
     final previous = netBalance;
-    double balance =
-        previous + credit; // Changed to add credit instead of subtract
+    double balance = previous + credit;
+
+    debugPrint("   previous=$previous + credit=$credit = balance=$balance");
+
     if (balance < 0) {
       balance = 0.0;
+      debugPrint("   ⚠️ Balance was negative, set to 0.0");
     }
+
     balanceController.text = balance.toStringAsFixed(2);
+    debugPrint("   Final balance: ${balanceController.text}\n");
   }
 
   Future<void> loadLedgerEntry({
@@ -3471,18 +3542,38 @@ class ItemLedgerEntryController extends GetxController {
     ItemLedgerEntry? entry,
     required Item item,
   }) async {
+    debugPrint("\n📂 === loadLedgerEntry START ===");
+    debugPrint("   ledgerNo: $ledgerNo");
+    debugPrint("   entry: ${entry?.toMap()}");
+    debugPrint("   item: ${item.toMap()}");
+
     ledgerNoController.text = ledgerNo;
-    // ---- NEW ----
     itemWeightPrevious.text = item.availableStock.toStringAsFixed(2);
+    debugPrint("   Set available stock: ${itemWeightPrevious.text}");
+
     updateBalance();
 
     if (entry != null) {
+      debugPrint("\n✏️ EDITING EXISTING ENTRY:");
+      debugPrint("   Entry ID: ${entry.id}");
+      debugPrint("   Voucher No: ${entry.voucherNo}");
+      debugPrint("   Transaction Type: ${entry.transactionType}");
+      debugPrint("   Debit: ${entry.debit}");
+      debugPrint("   Credit: ${entry.credit}");
+      debugPrint("   Balance: ${entry.balance}");
+      debugPrint("   New Stock: ${entry.newStock}");
+      debugPrint("   Price Per Kg: ${entry.pricePerKg}");
+      debugPrint("   Can Weight: ${entry.canWeight}");
+      debugPrint("   Cost Price: ${entry.costPrice}");
+      debugPrint("   Selling Price: ${entry.sellingPrice}");
+
       entryId.value = entry.id ?? 0;
       voucherNoController.text = entry.voucherNo;
       itemIdController.text = entry.itemId.toString();
       itemNameController.text = entry.itemName;
       transactionType.value = entry.transactionType;
       transactionTypeController.text = entry.transactionType;
+
       debitController.text = entry.debit != 0.0
           ? entry.debit.toStringAsFixed(2)
           : "0.00";
@@ -3490,6 +3581,7 @@ class ItemLedgerEntryController extends GetxController {
           ? entry.credit.toStringAsFixed(2)
           : "0.00";
       balanceController.text = entry.balance.toStringAsFixed(2);
+
       itemWeightType.text = item.type.toString();
       createdAt.value = entry.createdAt;
       updatedAt.value = entry.createdAt;
@@ -3499,29 +3591,63 @@ class ItemLedgerEntryController extends GetxController {
       updatedAtController.text = DateFormat(
         'dd-MM-yyyy',
       ).format(updatedAt.value!);
+
+      // Calculate previous balance
       double change = entry.transactionType == "Credit"
           ? entry.credit
-          : entry.debit; // Removed negation for debit
+          : entry.debit;
       previousBalance = entry.balance - change;
+
+      debugPrint("\n   Calculated previous balance:");
+      debugPrint(
+        "      balance=${entry.balance} - change=$change = previousBalance=$previousBalance",
+      );
+
       itemWeightPrevious.text = previousBalance!.toStringAsFixed(2);
-      itemWeightCurrent.text =
-          (entry.transactionType == "Debit" ? entry.debit : entry.credit) != 0.0
-          ? (entry.transactionType == "Debit" ? entry.debit : entry.credit)
-                .toStringAsFixed(2)
+
+      debugPrint("\n   🔍 CRITICAL: Extracting actual quantity in kg/L:");
+      debugPrint("      Entry newStock field: ${entry.newStock}");
+      debugPrint("      Entry debit: ${entry.debit}");
+      debugPrint("      Entry credit: ${entry.credit}");
+      debugPrint("      Transaction type: ${entry.transactionType}");
+      debugPrint("      Using newStock as the actual quantity in kg/L");
+
+      // FIX: Use newStock field which contains the actual quantity in kg/L
+      itemWeightCurrent.text = entry.newStock != 0.0
+          ? entry.newStock.toStringAsFixed(2)
           : "";
-      unitPriceController.text = item.pricePerKg != 0.0
-          ? item.pricePerKg.toStringAsFixed(2)
-          : "";
-      costPriceController.text = item.costPrice != 0.0
-          ? item.costPrice.toStringAsFixed(2)
-          : "";
-      canWeightController.text = item.canWeight != 0.0
-          ? item.canWeight.toStringAsFixed(2)
-          : "";
+
+      debugPrint("      Final itemWeightCurrent: ${itemWeightCurrent.text}");
+
+      // Set prices from entry
+      unitPriceController.text = entry.pricePerKg != 0.0
+          ? entry.pricePerKg.toStringAsFixed(2)
+          : (item.pricePerKg != 0.0 ? item.pricePerKg.toStringAsFixed(2) : "");
+
+      costPriceController.text = entry.costPrice != 0.0
+          ? entry.costPrice.toStringAsFixed(2)
+          : (item.costPrice != 0.0 ? item.costPrice.toStringAsFixed(2) : "");
+
+      canWeightController.text = entry.canWeight != 0.0
+          ? entry.canWeight.toStringAsFixed(2)
+          : (item.canWeight != 0.0 ? item.canWeight.toStringAsFixed(2) : "");
+
+      debugPrint("\n   Set prices:");
+      debugPrint("      unitPrice: ${unitPriceController.text}");
+      debugPrint("      costPrice: ${costPriceController.text}");
+      debugPrint("      canWeight: ${canWeightController.text}");
+
       _updateSellingPrice();
+
+      debugPrint("   After _updateSellingPrice:");
+      debugPrint("      sellingPrice: ${sellingPriceController.text}");
     } else {
+      debugPrint("\n🆕 CREATING NEW ENTRY:");
+
       entryId.value = 0;
       voucherNoController.text = await _generateVoucherNo(ledgerNo);
+      debugPrint("   Generated voucher no: ${voucherNoController.text}");
+
       itemIdController.text = item.id?.toString() ?? "";
       itemNameController.text = item.name;
       itemWeightType.text = item.type.toString();
@@ -3538,6 +3664,7 @@ class ItemLedgerEntryController extends GetxController {
         'dd-MM-yyyy',
       ).format(updatedAt.value!);
       itemWeightCurrent.text = "";
+
       unitPriceController.text = item.pricePerKg != 0.0
           ? item.pricePerKg.toStringAsFixed(2)
           : "";
@@ -3547,13 +3674,25 @@ class ItemLedgerEntryController extends GetxController {
       canWeightController.text = item.canWeight != 0.0
           ? item.canWeight.toStringAsFixed(2)
           : "";
+
+      debugPrint("   Set initial values:");
+      debugPrint("      itemId: ${itemIdController.text}");
+      debugPrint("      itemName: ${itemNameController.text}");
+      debugPrint("      unitPrice: ${unitPriceController.text}");
+      debugPrint("      costPrice: ${costPriceController.text}");
+      debugPrint("      canWeight: ${canWeightController.text}");
+
       _updateSellingPrice();
     }
+
     updateTransactionFields();
+    debugPrint("📂 === loadLedgerEntry END ===\n");
   }
 
   Future<String> _generateVoucherNo(String ledgerNo) async {
-    return await repo.getLastVoucherNo(ledgerNo);
+    final voucherNo = await repo.getLastVoucherNo(ledgerNo);
+    debugPrint("🎫 Generated voucher number: $voucherNo");
+    return voucherNo;
   }
 
   Future<ItemLedgerEntry?> saveLedgerEntry(
@@ -3561,16 +3700,19 @@ class ItemLedgerEntryController extends GetxController {
     String ledgerNo,
     String vendorName,
   ) async {
+    debugPrint("\n💾 === saveLedgerEntry START ===");
+    debugPrint("   ledgerNo: $ledgerNo");
+    debugPrint("   vendorName: $vendorName");
+    debugPrint("   entryId: ${entryId.value}");
+
     if (!formKey.currentState!.validate()) {
       debugPrint("❌ Form validation failed");
       return null;
     }
 
     try {
-      debugPrint("\n🔍 --- saveLedgerEntry START ---");
-
       final itemId = int.tryParse(itemIdController.text);
-      debugPrint("📦 Parsed itemId: ${itemIdController.text} → $itemId");
+      debugPrint("   Parsed itemId: ${itemIdController.text} → $itemId");
 
       if (itemId == null) {
         debugPrint("❌ Invalid itemId");
@@ -3580,7 +3722,23 @@ class ItemLedgerEntryController extends GetxController {
 
       final debit = double.tryParse(debitController.text) ?? 0.0;
       final credit = double.tryParse(creditController.text) ?? 0.0;
-      debugPrint("💰 debit=$debit | credit=$credit");
+      final canWeight = double.tryParse(canWeightController.text) ?? 0.0;
+      final costPrice = double.tryParse(costPriceController.text) ?? 0.0;
+      final sellingPrice = double.tryParse(sellingPriceController.text) ?? 0.0;
+      final pricePerKg = double.tryParse(unitPriceController.text) ?? 0.0;
+      final newStock = double.tryParse(itemWeightCurrent.text) ?? 0.0;
+      final balance = double.tryParse(balanceController.text) ?? 0.0;
+
+      debugPrint("\n   📊 Parsed values:");
+      debugPrint("      debit: $debit");
+      debugPrint("      credit: $credit");
+      debugPrint("      canWeight: $canWeight");
+      debugPrint("      costPrice: $costPrice");
+      debugPrint("      sellingPrice: $sellingPrice");
+      debugPrint("      pricePerKg: $pricePerKg");
+      debugPrint("      newStock: $newStock");
+      debugPrint("      balance: $balance");
+      debugPrint("      transactionType: ${transactionType.value}");
 
       if (debit == 0.0 && credit == 0.0) {
         debugPrint("❌ Both debit and credit are 0");
@@ -3597,27 +3755,33 @@ class ItemLedgerEntryController extends GetxController {
         vendorName: vendorName,
         transactionType: transactionType.value,
         debit: debit,
-        canWeight: double.parse(canWeightController.text),
-        costPrice: double.parse(costPriceController.text),
-        sellingPrice: double.parse(sellingPriceController.text),
-        pricePerKg: double.parse(unitPriceController.text),
+        canWeight: canWeight,
+        costPrice: costPrice,
+        sellingPrice: sellingPrice,
+        pricePerKg: pricePerKg,
         credit: credit,
-        newStock: double.parse(itemWeightCurrent.text),
-        balance: double.tryParse(balanceController.text) ?? 0.0,
+        newStock: newStock,
+        balance: balance,
         createdAt: createdAt.value,
         updatedAt: updatedAt.value ?? DateTime.now(),
       );
 
-      debugPrint("🧾 Created entry object: ${entry.toString()}");
+      debugPrint("\n   🧾 Created entry object:");
+      debugPrint("      ${entry.toMap()}");
 
       final isEdit = entryId.value != 0;
+      debugPrint("\n   Operation: ${isEdit ? 'EDIT' : 'NEW'}");
+
       if (isEdit) {
-        debugPrint("✏️ Editing existing entry: ${entryId.value}");
+        debugPrint("   ✏️ Editing existing entry: ${entryId.value}");
+
         final oldEntry = await repo.getItemLedgerEntryById(
           ledgerNo,
           entryId.value,
         );
-        debugPrint("📄 Old entry: ${oldEntry?.toMap()}");
+
+        debugPrint("   📄 Old entry from DB:");
+        debugPrint("      ${oldEntry?.toMap()}");
 
         if (oldEntry != null) {
           final reverseType = oldEntry.transactionType == "Debit"
@@ -3627,7 +3791,10 @@ class ItemLedgerEntryController extends GetxController {
               ? oldEntry.debit
               : oldEntry.credit;
 
-          debugPrint("🔁 Reversing old entry: type=$reverseType, qty=$oldQty");
+          debugPrint("\n   🔁 Reversing old entry:");
+          debugPrint("      Original type: ${oldEntry.transactionType}");
+          debugPrint("      Reverse type: $reverseType");
+          debugPrint("      Old quantity: $oldQty");
 
           // Reverse stock
           await repo.updateItemStock(
@@ -3635,12 +3802,17 @@ class ItemLedgerEntryController extends GetxController {
             transactionType: reverseType,
             quantity: oldQty,
           );
-          // ✅ Always reverse vendor ledger entry (for tracking)
+          debugPrint("   ✅ Stock reversed");
+
+          // Reverse vendor ledger entry
           final oldAmount = oldEntry.transactionType == "Credit"
               ? oldEntry.credit
               : oldEntry.debit;
 
-          debugPrint("🔄 Reversing vendor ledger entry");
+          debugPrint("\n   🔄 Reversing vendor ledger:");
+          debugPrint("      Amount: $oldAmount");
+          debugPrint("      Type: $reverseType");
+
           await repo.updateVendorLedger(
             vendorName: currentItem.vendor,
             transactionType: reverseType,
@@ -3648,13 +3820,14 @@ class ItemLedgerEntryController extends GetxController {
             voucherNo: oldEntry.voucherNo,
             date: oldEntry.createdAt,
           );
+          debugPrint("   ✅ Vendor ledger reversed");
         } else {
           debugPrint("❌ Could not find old entry");
           Get.snackbar('Error', 'Existing entry not found');
           return null;
         }
       } else {
-        debugPrint("🆕 Creating new entry for ledgerNo: $ledgerNo");
+        debugPrint("   🆕 Creating new entry");
 
         final item = Item(
           id: itemId,
@@ -3662,19 +3835,21 @@ class ItemLedgerEntryController extends GetxController {
           type: itemWeightType.text,
           vendor: currentItem.vendor,
           availableStock: double.tryParse(itemWeightPrevious.text) ?? 0.0,
-          pricePerKg: double.tryParse(unitPriceController.text) ?? 0.0,
-          costPrice: double.tryParse(costPriceController.text) ?? 0.0,
-          sellingPrice: double.tryParse(sellingPriceController.text) ?? 0.0,
-          canWeight: double.tryParse(canWeightController.text) ?? 0.0,
+          pricePerKg: pricePerKg,
+          costPrice: costPrice,
+          sellingPrice: sellingPrice,
+          canWeight: canWeight,
         );
 
-        debugPrint("📦 Updating item before stock change: ${item.toMap()}");
+        debugPrint("\n   📦 Updating item before stock change:");
+        debugPrint("      ${item.toMap()}");
+
         final updateResult = await repo.updateItem(item);
-        debugPrint("✅ Item update result: $updateResult");
+        debugPrint("   ✅ Item update result: $updateResult");
       }
 
       final result = await repo.insertItemLedgerEntry(ledgerNo, entry);
-      debugPrint("📘 Ledger entry inserted, result=$result");
+      debugPrint("\n   📘 Ledger entry inserted, result=$result");
 
       if (result <= 0) {
         debugPrint("❌ insertItemLedgerEntry failed with result=$result");
@@ -3682,23 +3857,27 @@ class ItemLedgerEntryController extends GetxController {
         return null;
       }
 
-      final qty = double.parse(itemWeightCurrent.text);
-      debugPrint(
-        "🧮 Calling updateItemStock(): itemId=$itemId | type=${entry.transactionType} | qty=$qty",
-      );
+      final qty = newStock;
+      debugPrint("\n   🧮 Updating stock:");
+      debugPrint("      itemId: $itemId");
+      debugPrint("      type: ${entry.transactionType}");
+      debugPrint("      qty: $qty");
 
       final stockResult = await repo.updateItemStock(
         itemId: itemId,
         transactionType: entry.transactionType,
         quantity: qty,
       );
-      debugPrint("📊 updateItemStock() result: $stockResult");
+      debugPrint("   📊 updateItemStock() result: $stockResult");
 
-      // ✅ FIXED: Only update vendor balance for Credit transactions
+      // Update vendor ledger
       final amount = entry.transactionType == "Credit" ? credit : debit;
 
-      // ✅ Always create vendor ledger entry (for tracking both credit and cash purchases)
-      debugPrint("📒 Creating vendor ledger entry");
+      debugPrint("\n   📒 Creating vendor ledger entry:");
+      debugPrint("      vendor: ${currentItem.vendor}");
+      debugPrint("      type: ${entry.transactionType}");
+      debugPrint("      amount: $amount");
+
       await repo.updateVendorLedger(
         vendorName: currentItem.vendor,
         transactionType: entry.transactionType,
@@ -3706,22 +3885,27 @@ class ItemLedgerEntryController extends GetxController {
         voucherNo: entry.voucherNo,
         date: entry.createdAt,
       );
+      debugPrint("   ✅ Vendor ledger updated");
 
       final updatedItem = await repo.getItemById(itemId);
-      debugPrint("🔍 Updated item after stock change: ${updatedItem?.toMap()}");
+      debugPrint("\n   🔍 Updated item after stock change:");
+      debugPrint("      ${updatedItem?.toMap()}");
 
       if (updatedItem != null) {
         unitPriceController.text = updatedItem.pricePerKg.toStringAsFixed(2);
         costPriceController.text = updatedItem.costPrice.toStringAsFixed(2);
         canWeightController.text = updatedItem.canWeight.toStringAsFixed(2);
+        debugPrint("   📝 Updated controller values from DB");
         _updateSellingPrice();
       }
 
-      debugPrint("🔚 --- saveLedgerEntry END ---\n");
+      debugPrint("💾 === saveLedgerEntry END ===\n");
       itemController.refreshOnReturn();
       return entry;
     } catch (e, st) {
-      debugPrint("❌ Exception in saveLedgerEntry: $e\n$st");
+      debugPrint("❌ Exception in saveLedgerEntry:");
+      debugPrint("   Error: $e");
+      debugPrint("   Stack trace: $st");
       Get.snackbar('Error', 'Error saving entry: $e');
       return null;
     }
@@ -3739,11 +3923,14 @@ class ItemLedgerEntryController extends GetxController {
       createdAtController.text = DateFormat(
         'dd-MM-yyyy',
       ).format(createdAt.value);
+      debugPrint("📅 Created date changed to: ${createdAtController.text}");
+
       if (entryId.value != 0) {
         updatedAt.value = createdAt.value;
         updatedAtController.text = DateFormat(
           'dd-MM-yyyy',
         ).format(updatedAt.value!);
+        debugPrint("📅 Updated date synced to: ${updatedAtController.text}");
       }
     }
   }
@@ -3760,16 +3947,20 @@ class ItemLedgerEntryController extends GetxController {
       updatedAtController.text = DateFormat(
         'dd-MM-yyyy',
       ).format(updatedAt.value!);
+      debugPrint("📅 Updated date changed to: ${updatedAtController.text}");
+
       if (entryId.value != 0) {
         createdAt.value = updatedAt.value!;
         createdAtController.text = DateFormat(
           'dd-MM-yyyy',
         ).format(createdAt.value);
+        debugPrint("📅 Created date synced to: ${createdAtController.text}");
       }
     }
   }
 
   void clearForm() {
+    debugPrint("🧹 Clearing form");
     ledgerNoController.clear();
     voucherNoController.clear();
     itemIdController.clear();
@@ -3792,10 +3983,12 @@ class ItemLedgerEntryController extends GetxController {
     updatedAt.value = null;
     previousBalance = null;
     entryId.value = 0;
+    debugPrint("✅ Form cleared\n");
   }
 
   @override
   void onClose() {
+    debugPrint("👋 ItemLedgerEntryController.onClose()");
     ledgerNoController.dispose();
     voucherNoController.dispose();
     itemIdController.dispose();
