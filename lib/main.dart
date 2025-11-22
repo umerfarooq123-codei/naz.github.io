@@ -617,13 +617,19 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
             const SizedBox(height: 32), // More vertical space
             Obx(
-              () =>
-                  buildSalesTrendChart(ledgerController.salesTrendLast6Months),
+              () => ledgerController.salesTrendLast6Months.isEmpty
+                  ? SizedBox.shrink()
+                  : buildSalesTrendChart(
+                      ledgerController.salesTrendLast6Months,
+                    ),
             ),
             const SizedBox(height: 32),
             Obx(
-              () =>
-                  buildExpenseBreakdownChart(ledgerController.expenseBreakdown),
+              () => ledgerController.expenseBreakdown.isEmpty
+                  ? SizedBox.shrink()
+                  : buildExpenseBreakdownChart(
+                      ledgerController.expenseBreakdown,
+                    ),
             ),
           ],
         ),

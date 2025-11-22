@@ -69,144 +69,170 @@ class AutomationScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<AutomationController>();
-    final screenWidth = MediaQuery.of(context).size.width;
 
     return BaseLayout(
       appBarTitle: 'Automation & Integrations',
       showBackButton: false,
       child: Padding(
         padding: const EdgeInsets.all(16),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header + Period Selector
+                Obx(
+                  () => Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Showing expenses with ${controller.selectedPeriod.value} frequency',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Responsive Dropdown
+                      IntrinsicWidth(
+                        // width: isLargeScreen ? 300 : double.infinity,
+                        child: DropdownButtonFormField<String>(
+                          initialValue: controller.selectedPeriod.value,
+                          decoration: InputDecoration(
+                            labelText: 'Period',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 16,
+                            ),
+                          ),
+                          items: ['Daily', 'Weekly', 'Monthly']
+                              .map(
+                                (period) => DropdownMenuItem(
+                                  value: period,
+                                  child: Text(period),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              controller.savePeriod(value);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // Date Range Section
+                Text(
+                  'Select Date Range for Sales Trend:',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                Obx(
+                  () => Row(
+                    children: [
+                      // From Date Picker
+                      IntrinsicWidth(
+                        child: buildDateField(
+                          context: context,
+                          label: 'From',
+                          date: controller.fromDate.value,
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: controller.fromDate.value,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime.now(),
+                            );
+                            if (picked != null) {
+                              controller.saveDates(
+                                picked,
+                                controller.toDate.value,
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      // To Date Picker
+                      IntrinsicWidth(
+                        child: buildDateField(
+                          context: context,
+                          label: 'To',
+                          date: controller.toDate.value,
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: controller.toDate.value,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime.now(),
+                            );
+                            if (picked != null) {
+                              controller.saveDates(
+                                controller.fromDate.value,
+                                picked,
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+                const ThemeToggleButton(showText: true),
+
+                // Add more widgets below as needed...
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget buildDateField({
+    required BuildContext context,
+    required String label,
+    required DateTime date,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade400),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Obx(
-              () => SizedBox(
-                width: screenWidth / 2,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Showing expenses with ${controller.selectedPeriod.value} frequency',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: screenWidth / 4,
-                      child: DropdownButtonFormField<String>(
-                        initialValue: controller.selectedPeriod.value,
-                        decoration: InputDecoration(
-                          labelText: 'Period',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        items: ['Daily', 'Weekly', 'Monthly']
-                            .map(
-                              (period) => DropdownMenuItem(
-                                value: period,
-                                child: Text(period),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            controller.savePeriod(value);
-                          }
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // 🗓️ From Date Picker
-                    Text(
-                      'Select Date Range for Sales Trend:',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    Row(
-                      children: [
-                        // FROM Date
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                initialDate: controller.fromDate.value,
-                                firstDate: DateTime(2020),
-                                lastDate: DateTime.now(),
-                              );
-                              if (picked != null) {
-                                controller.saveDates(
-                                  picked,
-                                  controller.toDate.value,
-                                );
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 14,
-                              ),
-                              decoration: BoxDecoration(
-                                border: Border.all(color: Colors.grey.shade400),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                'From: ${controller.fromDate.value.toLocal().toString().split(' ')[0]}',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-
-                        // TO Date
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                initialDate: controller.toDate.value,
-                                firstDate: DateTime(2020),
-                                lastDate: DateTime.now(),
-                              );
-                              if (picked != null) {
-                                controller.saveDates(
-                                  controller.fromDate.value,
-                                  picked,
-                                );
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 14,
-                              ),
-                              decoration: BoxDecoration(
-                                border: Border.all(color: Colors.grey.shade400),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                'To: ${controller.toDate.value.toLocal().toString().split(' ')[0]}',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+            Text(
+              '$label Date',
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(color: Colors.grey.shade600),
             ),
-            const SizedBox(height: 16),
-            ThemeToggleButton(showText: true),
-            // Other widgets remain unchanged...
+            const SizedBox(height: 4),
+            Text(
+              date.toLocal().toString().split(' ')[0],
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+            ),
           ],
         ),
       ),

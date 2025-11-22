@@ -2337,6 +2337,7 @@ class LedgerController extends GetxController {
     salesTrendLast6Months.value = await DBHelper().fetchSalesTrendBetweenMonths(
       automationController.formattedFromMonth,
       automationController.formattedToMonth,
+      type: 'both',
     );
   }
 

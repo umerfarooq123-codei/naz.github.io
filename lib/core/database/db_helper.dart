@@ -520,67 +520,80 @@ class DBHelper {
   }
 
   Future<List<Map<String, dynamic>>> fetchSalesTrendBetweenMonths(
-    String startMonth, // e.g., "2025-06"
-    String endMonth, // e.g., "2025-11"
-  ) async {
+    String startMonth,
+    String endMonth, {
+    String type = 'debit', // 'debit', 'credit', or 'both'
+  }) async {
     final db = await database;
     try {
-      // Get all tables starting with 'ledger_entries_'
-      final tables = await db.rawQuery('''
-      SELECT name FROM sqlite_master
-      WHERE type='table' AND name LIKE 'ledger_entries_%'
-    ''');
-
-      if (tables.isEmpty) {
-        return [];
+      // Validate type
+      if (!['debit', 'credit', 'both'].contains(type)) {
+        type = 'debit';
       }
 
-      // Build UNION ALL across all tables
-      final unionQueries = tables
+      // Get all ledger tables
+      final tablesResult = await db.rawQuery('''
+      SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name LIKE 'ledger_entries_%'
+    ''');
+
+      if (tablesResult.isEmpty) return [];
+
+      // Build column selection based on type
+      final String amountColumn = type == 'both'
+          ? 'COALESCE(credit, 0) + COALESCE(debit, 0)'
+          : type == 'credit'
+          ? 'COALESCE(credit, 0)'
+          : 'COALESCE(debit, 0)';
+
+      final String whereCondition = type == 'both'
+          ? '(debit IS NOT NULL AND debit > 0 OR credit IS NOT NULL AND credit > 0)'
+          : type == 'credit'
+          ? 'credit IS NOT NULL AND credit > 0'
+          : 'debit IS NOT NULL AND debit > 0';
+
+      // Union all relevant data from every partition
+      final unionQueries = tablesResult
           .map((t) {
-            final tableName = t['name'];
+            final tableName = t['name'] as String;
             return '''
         SELECT
           CASE
             WHEN date IS NULL THEN NULL
-            WHEN typeof(date) = 'integer' THEN strftime('%Y-%m', date / 1000, 'unixepoch')
-            WHEN trim(date) LIKE '%-%' THEN strftime('%Y-%m', date)
-            WHEN length(trim(date)) >= 11 THEN strftime('%Y-%m', CAST(trim(date) AS integer) / 1000, 'unixepoch')
-            ELSE strftime('%Y-%m', CAST(trim(date) AS integer), 'unixepoch')
+            WHEN typeof(date) = 'integer' THEN strftime('%Y-%m', datetime(date / 1000, 'unixepoch'))
+            WHEN date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' THEN substr(date, 1, 7)
+            WHEN date GLOB '[0-9][0-9]/[0-9][0-9]/[0-9][0-9][0-9][0-9]' THEN substr(date, 7, 4) || '-' || substr(date, 4, 2)
+            ELSE NULL
           END AS month,
-          debit
-        FROM $tableName
-        WHERE debit IS NOT NULL AND debit > 0
+          $amountColumn AS amount
+        FROM `$tableName`
+        WHERE month IS NOT NULL
+          AND month BETWEEN ? AND ?
+          AND $whereCondition
       ''';
           })
           .join(' UNION ALL ');
 
-      // Main query: month range + total sales from all tables
+      if (unionQueries.trim().isEmpty) return [];
+
+      // Final query with recursive month generation + totals
       final query =
           '''
-      WITH RECURSIVE
-        month_range AS (
-          SELECT ? AS month
-          UNION ALL
-          SELECT strftime('%Y-%m', date(month || '-01', '+1 month'))
-          FROM month_range
-          WHERE month < ?
-        ),
-        all_sales AS (
-          $unionQueries
-        ),
-        monthly_sales AS (
-          SELECT month, SUM(debit) AS total_sales
-          FROM all_sales
-          WHERE month BETWEEN ? AND ?
-          GROUP BY month
-        )
+      WITH RECURSIVE months(m) AS (
+        SELECT ?
+        UNION ALL
+        SELECT strftime('%Y-%m', date(m || '-01', '+1 month'))
+        FROM months
+        WHERE m < ?
+      ),
+      raw_data AS ($unionQueries)
       SELECT
-        mr.month,
-        COALESCE(ms.total_sales, 0) AS total_sales
-      FROM month_range mr
-      LEFT JOIN monthly_sales ms ON mr.month = ms.month
-      ORDER BY mr.month ASC;
+        m AS month,
+        COALESCE(SUM(amount), 0) AS total_sales
+      FROM months
+      LEFT JOIN raw_data ON raw_data.month = months.m
+      GROUP BY m
+      ORDER BY m ASC
     ''';
 
       final result = await db.rawQuery(query, [
@@ -589,9 +602,17 @@ class DBHelper {
         startMonth,
         endMonth,
       ]);
-      return result;
-    } catch (e) {
-      print('❌ Error fetching sales trend between months: $e');
+
+      return result
+          .map(
+            (row) => {
+              'month': row['month'] as String,
+              'total_sales': (row['total_sales'] as num).toDouble(),
+            },
+          )
+          .toList();
+    } catch (e, s) {
+      debugPrint('Error in fetchSalesTrendBetweenMonths: $e\n$s');
       return [];
     }
   }
