@@ -6,7 +6,6 @@ import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/main.dart';
 import 'package:ledger_master/shared/components/constants.dart';
-import 'package:ledger_master/shared/widgets/navigation_files.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
 
 import '../../core/models/customer.dart';
@@ -18,9 +17,9 @@ class CustomerLedgerTablePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Remove old controller instance and create a fresh one
+    Get.delete<CustomerLedgerTableController>();
     final controller = Get.put(CustomerLedgerTableController());
-    controller.currentCustomer.value = customer;
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       controller.loadLedgerEntries();
     });
@@ -273,6 +272,15 @@ class CustomerLedgerTablePage extends StatelessWidget {
                     customer.name,
                   ),
                   builder: (context, snapshott) {
+                    debugPrint('[CustomerLedgerTable]');
+                    debugPrint('name=${customer.name}');
+                    debugPrint('type=${customer.type}');
+                    debugPrint('id=${customer.id}');
+                    debugPrint(
+                      '[OpeningBalance] state=${snapshott.connectionState}, '
+                      'data=${snapshott.data}, error=${snapshott.error}',
+                    );
+
                     return FutureBuilder<DebitCreditSummary>(
                       future: controller.customerListController
                           .getCustomerDebitCredit(
@@ -281,12 +289,19 @@ class CustomerLedgerTablePage extends StatelessWidget {
                             customer.id!,
                           ),
                       builder: (context, snapshot) {
+                        debugPrint(
+                          '[DebitCredit] state=${snapshot.connectionState}, '
+                          'data=${snapshot.data}, error=${snapshot.error}',
+                        );
+
                         if (snapshot.connectionState ==
                             ConnectionState.waiting) {
+                          debugPrint('[DebitCredit] waiting...');
                           return const SizedBox(height: 20, width: 20);
                         }
 
                         if (snapshot.hasError) {
+                          debugPrint('[DebitCredit] error=${snapshot.error}');
                           return Text(
                             'Error: ${snapshot.error}',
                             style: TextStyle(
@@ -296,10 +311,21 @@ class CustomerLedgerTablePage extends StatelessWidget {
                         }
 
                         if (!snapshot.hasData) {
+                          debugPrint('[DebitCredit] no data');
                           return const Text('No data');
                         }
 
                         final summary = snapshot.data!;
+                        debugPrint(
+                          '[Summary] credit=${summary.credit}, '
+                          'debit=${summary.debit}',
+                        );
+
+                        debugPrint(
+                          '[NetBalanceCalc] credit=${summary.credit}, '
+                          'opening=${snapshott.data}, '
+                          'debit=${summary.debit}',
+                        );
 
                         return Row(
                           mainAxisSize: MainAxisSize.min,

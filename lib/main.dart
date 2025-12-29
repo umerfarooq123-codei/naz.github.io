@@ -5,14 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:ledger_master/core/models/item.dart';
+import 'package:ledger_master/core/service_bindings.dart';
 import 'package:ledger_master/core/theme/app_theme.dart';
 import 'package:ledger_master/features/bank_reconciliation/bank_transaction_list.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
-import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
-import 'package:ledger_master/features/inventory/inventory_repository.dart';
 import 'package:ledger_master/features/inventory/item_list.dart';
 import 'package:ledger_master/features/ledger/ledger_home.dart';
-import 'package:ledger_master/features/ledger/ledger_repository.dart';
 import 'package:ledger_master/features/purchases_expenses/purchase_and_expense_list_and_form.dart';
 import 'package:ledger_master/features/sales_invoicing/invoice_list.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
@@ -21,6 +19,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'features/automation/automation_screen.dart';
+import 'features/cans/cans_list.dart';
 import 'features/payroll/employee_list.dart';
 
 class ThemeController extends GetxController {
@@ -68,13 +67,8 @@ void main() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-  Get.put(ThemeController());
-  Get.put(LedgerController(LedgerRepository()));
-  Get.put(CustomerController(CustomerRepository()));
-  Get.put(ExpensePurchaseGetxController());
-  Get.put(ItemController(InventoryRepository(), null));
-  Get.put(LedgerTableController());
-  Get.put(AutomationController());
+  // Initialize all repositories and controllers via service bindings
+  Get.put(ServiceBindings());
   runApp(const MyApp());
 }
 
@@ -88,6 +82,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
+      initialBinding: ServiceBindings(),
       home: const DashboardScreen(),
     );
   }
@@ -731,6 +726,11 @@ class _BaseLayoutState extends State<BaseLayout> {
       'title': 'Purchases & Expenses',
       'icon': Icons.shopping_cart,
       'page': ExpensePurchaseScreen(),
+    },
+    {
+      'title': 'Cans Management',
+      'icon': Icons.inventory_2,
+      'page': const CansList(),
     },
     {
       'title': 'Bank Reconciliation',

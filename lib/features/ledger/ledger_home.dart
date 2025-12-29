@@ -30,6 +30,7 @@ class LedgerHome extends StatelessWidget {
     final ledgerController = Get.find<LedgerController>();
     final isDesktop = MediaQuery.of(context).size.width > 800;
     final customerController = Get.find<CustomerController>();
+    customerController.fetchCustomers();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     Widget buildHighlightedText(String text, String query) {
@@ -185,7 +186,7 @@ class LedgerHome extends StatelessWidget {
                                     : 2,
                                 crossAxisSpacing: 16,
                                 mainAxisSpacing: 16,
-                                childAspectRatio: isDesktop ? 1.6 : 1.4,
+                                childAspectRatio: isDesktop ? 2 : 1.4,
                               ),
                           itemCount: ledgerController.filteredLedgers.length,
                           itemBuilder: (context, index) {
@@ -194,10 +195,19 @@ class LedgerHome extends StatelessWidget {
                             return Card(
                               elevation: isDark ? 4 : 0,
                               child: InkWell(
-                                onTap: () => NavigationHelper.push(
-                                  context,
-                                  LedgerTablePage(ledger: ledger),
-                                ),
+                                onTap: () async {
+                                  await CustomerRepository()
+                                      .getCustomerByName(ledger.accountName)
+                                      .then((customer) {
+                                        NavigationHelper.push(
+                                          context,
+                                          LedgerTablePage(
+                                            ledger: ledger,
+                                            customer: customer!,
+                                          ),
+                                        );
+                                      });
+                                },
                                 borderRadius: BorderRadius.circular(12),
                                 child: LayoutBuilder(
                                   builder: (context, constraints) {
@@ -275,7 +285,7 @@ class LedgerHome extends StatelessWidget {
                                                       MainAxisSize.min,
                                                   children: [
                                                     buildHighlightedText(
-                                                      'Account: ${ledger.accountName}',
+                                                      'Name: ${ledger.accountName}',
                                                       ledgerController
                                                           .searchQuery
                                                           .value,
@@ -289,101 +299,6 @@ class LedgerHome extends StatelessWidget {
                                                           .value,
                                                     ),
                                                     const SizedBox(height: 3),
-
-                                                    // OPENING BALANCE + DEBIT HANDLING
-                                                    FutureBuilder(
-                                                      future: CustomerRepository()
-                                                          .getOpeningBalanceForCustomer(
-                                                            ledger.accountName,
-                                                          ),
-                                                      builder: (context, snapshot) {
-                                                        if (snapshot
-                                                                .connectionState ==
-                                                            ConnectionState
-                                                                .waiting) {
-                                                          return const SizedBox(
-                                                            height: 16,
-                                                            width: 16,
-                                                          );
-                                                        }
-
-                                                        final openingBalance =
-                                                            (snapshot.data
-                                                                is num)
-                                                            ? snapshot.data
-                                                                  as num
-                                                            : 0;
-
-                                                        return buildHighlightedText(
-                                                          openingBalance != 0
-                                                              ? "Opening Bal: ${NumberFormat('#,##0').format(openingBalance)}"
-                                                              : 'Debit: ${NumberFormat('#,##0').format(ledger.debit)}',
-                                                          ledgerController
-                                                              .searchQuery
-                                                              .value,
-                                                        );
-                                                      },
-                                                    ),
-                                                    const SizedBox(height: 3),
-
-                                                    // CREDIT
-                                                    buildHighlightedText(
-                                                      'Credit: ${NumberFormat('#,##0').format(ledger.credit)}',
-                                                      ledgerController
-                                                          .searchQuery
-                                                          .value,
-                                                    ),
-                                                    const SizedBox(height: 3),
-
-                                                    // NET BALANCE — UPDATED
-                                                    // NET BALANCE — convert negative to positive
-                                                    FutureBuilder(
-                                                      future: CustomerRepository()
-                                                          .getOpeningBalanceForCustomer(
-                                                            ledger.accountName,
-                                                          ),
-                                                      builder: (context, snapshot) {
-                                                        if (snapshot
-                                                                .connectionState ==
-                                                            ConnectionState
-                                                                .waiting) {
-                                                          return const SizedBox(
-                                                            height: 16,
-                                                            width: 16,
-                                                          );
-                                                        }
-
-                                                        final openingBalance =
-                                                            (snapshot.data
-                                                                is num)
-                                                            ? snapshot.data
-                                                                  as num
-                                                            : 0;
-
-                                                        // total debit = ledger.debit + opening balance (if non-zero)
-                                                        final totalDebit =
-                                                            ledger.debit +
-                                                            (openingBalance != 0
-                                                                ? openingBalance
-                                                                : 0);
-
-                                                        // raw net balance
-                                                        final netBalance =
-                                                            totalDebit -
-                                                            ledger.credit;
-
-                                                        // ✔ FIX: convert negative → positive (absolute value)
-                                                        final positiveNet =
-                                                            netBalance.abs();
-
-                                                        return buildHighlightedText(
-                                                          'Net Balance: ${NumberFormat('#,##0').format(positiveNet)}',
-                                                          ledgerController
-                                                              .searchQuery
-                                                              .value,
-                                                        );
-                                                      },
-                                                    ),
 
                                                     if (ledger.description !=
                                                         null) ...[
@@ -1200,10 +1115,21 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
 
 class LedgerTablePage extends StatelessWidget {
   final Ledger ledger;
-  const LedgerTablePage({super.key, required this.ledger});
+  final Customer customer;
+  const LedgerTablePage({
+    super.key,
+    required this.ledger,
+    required this.customer,
+  });
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<LedgerTableController>();
+    final customerController = Get.find<CustomerController>();
+
+    // Clear old data before loading new ledger entries
+    controller.filteredLedgerEntries.clear();
+    controller.isLoading.value = true;
+
     // Compute net balance locally to avoid side effects in getter (sort + refresh during build)
     // ignore: unused_local_variable
     double netBal = controller.openingBalance;
@@ -1229,6 +1155,7 @@ class LedgerTablePage extends StatelessWidget {
         }
       });
     });
+
     return BaseLayout(
       showBackButton: true,
       appBarTitle: "Ledger Entries of: ${ledger.accountName}",
@@ -1543,16 +1470,108 @@ class LedgerTablePage extends StatelessWidget {
                     ),
                   ),
             // Totals row
-            // Row(
-            // mainAxisAlignment: MainAxisAlignment.end,
-            // children: [
-            // totalBox("Total Debit", controller.totalDebit, context),
-            // const SizedBox(width: 16),
-            // totalBox("Opening Balance", controller.openingBalance, context),
-            // const SizedBox(width: 16),
-            // totalBox("Balance", netBal, context),
-            // ],
-            // ),
+            Container(
+              alignment: Alignment.centerRight,
+              width: MediaQuery.of(context).size.width,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: FutureBuilder<double>(
+                  future: CustomerRepository().getOpeningBalanceForCustomer(
+                    customer.name,
+                  ),
+                  builder: (context, snapshott) {
+                    return FutureBuilder<DebitCreditSummary>(
+                      future: customerController.getCustomerDebitCredit(
+                        customer.name,
+                        customer.type,
+                        customer.id!,
+                      ),
+                      builder: (context, snapshot) {
+                        debugPrint(
+                          '[DebitCredit] state=${snapshot.connectionState}, '
+                          'data=${snapshot.data}, error=${snapshot.error}',
+                        );
+
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          debugPrint('[DebitCredit] waiting...');
+                          return const SizedBox(height: 20, width: 20);
+                        }
+
+                        if (snapshot.hasError) {
+                          debugPrint('[DebitCredit] error=${snapshot.error}');
+                          return Text(
+                            'Error: ${snapshot.error}',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          );
+                        }
+
+                        if (!snapshot.hasData) {
+                          debugPrint('[DebitCredit] no data');
+                          return const Text('No data');
+                        }
+
+                        final summary = snapshot.data!;
+                        debugPrint(
+                          '[Summary] credit=${summary.credit}, '
+                          'debit=${summary.debit}',
+                        );
+
+                        debugPrint(
+                          '[NetBalanceCalc] credit=${summary.credit}, '
+                          'opening=${snapshott.data}, '
+                          'debit=${summary.debit}',
+                        );
+
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (snapshott.connectionState ==
+                                ConnectionState.waiting)
+                              const SizedBox(height: 20, width: 20)
+                            else
+                              snapshott.data != 0 || snapshott.data != 0.0
+                                  ? totalBox(
+                                      "Opening Bal",
+                                      snapshott.data!,
+                                      context,
+                                    )
+                                  : SizedBox.shrink(),
+                            const SizedBox(width: 16),
+                            totalBox(
+                              "Credit",
+                              double.parse(summary.credit),
+                              context,
+                            ),
+                            const SizedBox(width: 16),
+                            totalBox(
+                              "Debit",
+                              double.parse(summary.debit),
+                              context,
+                            ),
+                            const SizedBox(width: 16),
+                            totalBox(
+                              "Net Balance",
+                              ((double.parse(summary.credit) +
+                                          (snapshott.data ?? 0)) -
+                                      double.parse(summary.debit))
+                                  .clamp(0, double.infinity),
+                              context,
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ),
           ],
         );
       }),
@@ -1939,6 +1958,7 @@ class LedgerTableController extends GetxController {
   final selectAll = false.obs;
   final selectedTransactionType = RxnString();
   final isLoading = false.obs;
+  final isFetchingCustomer = false.obs;
   final calculationAnalysis = ''.obs;
   final showCalculationAnalysis = false.obs;
   final searchQuery = ''.obs;
@@ -1948,6 +1968,7 @@ class LedgerTableController extends GetxController {
   final RxMap<String, double> columnWidths = <String, double>{}.obs;
   final CustomerRepository repo = CustomerRepository();
   var openingBalance = 0.0; // 👈 cache value for sync access
+  Customer? customer;
   // optional helper to set a default width only if not already set
   void ensureColumnWidth(String columnName, double width) {
     if (!columnWidths.containsKey(columnName)) {
@@ -1972,6 +1993,16 @@ class LedgerTableController extends GetxController {
     ever(selectedTransactionType, (_) => _applyFilters());
     // Apply initial filters
     _applyFilters();
+  }
+
+  Future<void> getcustomer(String accountName) async {
+    isFetchingCustomer.value = true;
+    debugPrint('called');
+    debugPrint('${isFetchingCustomer.value}');
+
+    customer = await CustomerRepository().getCustomerByName(accountName);
+    isFetchingCustomer.value = false;
+    debugPrint('${isFetchingCustomer.value}');
   }
 
   void _applyFilters() {
@@ -3040,17 +3071,31 @@ class LedgerController extends GetxController {
                       (double.tryParse(formData.receivedCans.text) ?? 0.0))
                   .toString(),
           receivedCans: formData.receivedCans.text.toString(),
-          // New cheque fields
+          // ✅ FIXED: Cheque fields - only populate if payment method is cheque
           paymentMethod: formData.paymentMethod.value,
-          chequeNo: formData.chequeNoController.text.isNotEmpty
-              ? formData.chequeNoController.text
+          chequeNo: formData.paymentMethod.value.toLowerCase() == 'cheque'
+              ? (formData.chequeNoController.text.isNotEmpty
+                    ? formData.chequeNoController.text
+                    : null)
               : null,
-          chequeAmount: formData.chequeAmountController.text.isNotEmpty
-              ? double.tryParse(formData.chequeAmountController.text)
+          chequeAmount: formData.paymentMethod.value.toLowerCase() == 'cheque'
+              ? (formData.chequeAmountController.text.isNotEmpty
+                    ? double.tryParse(formData.chequeAmountController.text)
+                    : null)
               : null,
-          chequeDate: formData.chequeDate.value,
-          bankName: formData.bankNameController.text.isNotEmpty
-              ? formData.bankNameController.text
+          chequeDate: formData.paymentMethod.value.toLowerCase() == 'cheque'
+              ? (formData.chequeDate.value != null
+                    ? DateTime(
+                        formData.chequeDate.value!.year,
+                        formData.chequeDate.value!.month,
+                        formData.chequeDate.value!.day,
+                      )
+                    : null)
+              : null,
+          bankName: formData.paymentMethod.value.toLowerCase() == 'cheque'
+              ? (formData.bankNameController.text.isNotEmpty
+                    ? formData.bankNameController.text
+                    : null)
               : null,
         );
         if (formData.originalEntry == null) {
@@ -4294,7 +4339,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
                     focusNode: formData.paymentMethodFocusNode,
                     style: Theme.of(context).textTheme.bodySmall,
                     decoration: InputDecoration(
-                      labelText: 'Transaction Type',
+                      labelText: 'Payment Type',
                       labelStyle: Theme.of(context).textTheme.bodySmall!
                           .copyWith(
                             color: Theme.of(
@@ -4539,7 +4584,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
               focusNode: formData.paymentMethodFocusNode,
               style: Theme.of(context).textTheme.bodySmall,
               decoration: InputDecoration(
-                labelText: 'Transaction Type',
+                labelText: 'Payment Type',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),

@@ -56,47 +56,47 @@ void showCustomerLedgerEntryDialog(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _entryRow(context, "Voucher No", entry.voucherNo),
-                        _entryRow(context, "Customer Name", entry.customerName),
-                        _entryRow(
+                        entryRow(context, "Voucher No", entry.voucherNo),
+                        entryRow(context, "Customer Name", entry.customerName),
+                        entryRow(
                           context,
                           "Date",
                           dateFormat.format(entry.date),
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Transaction Type",
                           entry.transactionType,
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Debit",
                           entry.debit.toStringAsFixed(2),
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Credit",
                           entry.credit.toStringAsFixed(2),
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Balance",
                           entry.balance.toStringAsFixed(2),
                         ),
-                        _entryRow(context, "Description", entry.description),
-                        _entryRow(
+                        entryRow(context, "Description", entry.description),
+                        entryRow(
                           context,
                           "Payment Method",
                           entry.paymentMethod ?? "-",
                         ),
-                        _entryRow(context, "Bank Name", entry.bankName ?? "-"),
-                        _entryRow(context, "Cheque No", entry.chequeNo ?? "-"),
-                        _entryRow(
+                        entryRow(context, "Bank Name", entry.bankName ?? "-"),
+                        entryRow(context, "Cheque No", entry.chequeNo ?? "-"),
+                        entryRow(
                           context,
                           "Cheque Amount",
                           entry.chequeAmount?.toStringAsFixed(2) ?? "-",
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Cheque Date",
                           entry.chequeDate != null
@@ -108,7 +108,7 @@ void showCustomerLedgerEntryDialog(
                           color: Theme.of(context).colorScheme.outlineVariant,
                         ),
                         const SizedBox(height: 12),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Created At",
                           dateFormat.format(entry.createdAt),
@@ -198,67 +198,66 @@ void showLedgerEntryDialog(BuildContext context, LedgerEntry entry) {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _entryRow(context, "Voucher No", entry.voucherNo),
-                        _entryRow(context, "Account Name", entry.accountName),
-                        _entryRow(
+                        entryRow(context, "Voucher No", entry.voucherNo),
+                        entryRow(context, "Account Name", entry.accountName),
+                        entryRow(
                           context,
                           "Transaction Type",
                           entry.transactionType,
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Debit",
                           entry.debit.toStringAsFixed(2),
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Credit",
                           entry.credit.toStringAsFixed(2),
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Balance",
                           entry.balance.toStringAsFixed(2),
                         ),
-                        _entryRow(context, "Status", entry.status),
-                        _entryRow(
+                        entryRow(context, "Status", entry.status),
+                        entryRow(
                           context,
                           "Description",
                           entry.description ?? "-",
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Reference No",
                           entry.referenceNo ?? "-",
                         ),
-                        _entryRow(context, "Category", entry.category ?? "-"),
-                        _entryRow(
+                        entryRow(context, "Category", entry.category ?? "-"),
+                        entryRow(
                           context,
                           "Tags",
                           entry.tags?.join(", ") ?? "-",
                         ),
-                        _entryRow(
-                          context,
-                          "Created By",
-                          entry.createdBy ?? "-",
-                        ),
-                        _entryRow(
+                        entryRow(context, "Created By", entry.createdBy ?? "-"),
+                        entryRow(
                           context,
                           "Payment Method",
                           entry.paymentMethod ?? "-",
                         ),
-                        _entryRow(context, "Bank Name", entry.bankName ?? "-"),
-                        _entryRow(context, "Cheque No", entry.chequeNo ?? "-"),
-                        _entryRow(
+                        entryRow(context, "Bank Name", entry.bankName ?? "-"),
+                        entryRow(context, "Cheque No", entry.chequeNo ?? "-"),
+                        entryRow(
                           context,
                           "Cheque Amount",
                           entry.chequeAmount?.toStringAsFixed(2) ?? "-",
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Cheque Date",
-                          entry.chequeDate != null
-                              ? dateFormat.format(entry.chequeDate!)
+                          entry.paymentMethod?.toLowerCase() == 'cheque' &&
+                                  entry.chequeDate != null
+                              ? DateFormat(
+                                  'dd-MM-yyyy',
+                                ).format(entry.chequeDate!)
                               : "-",
                         ),
                         const SizedBox(height: 12),
@@ -296,38 +295,38 @@ void showLedgerEntryDialog(BuildContext context, LedgerEntry entry) {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _entryRow(context, "Item Name", entry.itemName ?? "-"),
-                        _entryRow(
+                        entryRow(context, "Item Name", entry.itemName ?? "-"),
+                        entryRow(
                           context,
                           "Item Price/Unit",
                           entry.itemPricePerUnit?.toStringAsFixed(2) ?? "-",
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Can Weight",
                           entry.canWeight?.toStringAsFixed(2) ?? "-",
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Cans Quantity",
                           entry.cansQuantity?.toString() ?? "-",
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Selling Price/Can",
                           entry.sellingPricePerCan?.toStringAsFixed(2) ?? "-",
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Balance Cans",
                           entry.balanceCans ?? "-",
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Received Cans",
                           entry.receivedCans ?? "-",
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Total Weight",
                           entry.totalWeight.toStringAsFixed(2),
@@ -336,12 +335,12 @@ void showLedgerEntryDialog(BuildContext context, LedgerEntry entry) {
                         Divider(
                           color: Theme.of(context).colorScheme.outlineVariant,
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Created At",
                           dateFormat.format(entry.createdAt),
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Updated At",
                           dateFormat.format(entry.updatedAt),
@@ -430,30 +429,30 @@ void showItemLedgerEntryDialog(BuildContext context, ItemLedgerEntry entry) {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _entryRow(context, "Voucher No", entry.voucherNo),
-                        _entryRow(context, "Ledger No", entry.ledgerNo),
-                        _entryRow(
+                        entryRow(context, "Voucher No", entry.voucherNo),
+                        entryRow(context, "Ledger No", entry.ledgerNo),
+                        entryRow(
                           context,
                           "Item ID",
                           entry.itemId?.toString() ?? "-",
                         ),
-                        _entryRow(context, "Item Name", entry.itemName),
-                        _entryRow(
+                        entryRow(context, "Item Name", entry.itemName),
+                        entryRow(
                           context,
                           "Transaction Type",
                           entry.transactionType,
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Debit",
                           entry.debit.toStringAsFixed(2),
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Credit",
                           entry.credit.toStringAsFixed(2),
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Balance",
                           entry.balance.toStringAsFixed(2),
@@ -463,12 +462,12 @@ void showItemLedgerEntryDialog(BuildContext context, ItemLedgerEntry entry) {
                           color: Theme.of(context).colorScheme.outlineVariant,
                         ),
                         const SizedBox(height: 10),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Created At",
                           dateFormat.format(entry.createdAt),
                         ),
-                        _entryRow(
+                        entryRow(
                           context,
                           "Updated At",
                           entry.updatedAt != null
@@ -512,7 +511,7 @@ void showItemLedgerEntryDialog(BuildContext context, ItemLedgerEntry entry) {
   );
 }
 
-Widget _entryRow(BuildContext context, String label, String value) {
+Widget entryRow(BuildContext context, String label, String value) {
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 6.0),
     child: Row(
@@ -674,6 +673,61 @@ Widget totalBox(String label, double value, BuildContext context) {
             ? Theme.of(context).colorScheme.onSurface
             : Theme.of(context).colorScheme.onPrimaryContainer,
       ),
+    ),
+  );
+}
+
+void confirmDeleteDialog({
+  required VoidCallback onConfirm,
+  required BuildContext context,
+}) {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      title: Text(
+        'Confirm Delete',
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.bold,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
+      ),
+      content: Text(
+        'Are you sure you want to delete?',
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text(
+            'No',
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(ctx).pop();
+            onConfirm();
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            foregroundColor: Theme.of(context).colorScheme.onError,
+          ),
+          child: Text(
+            'Yes',
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: Theme.of(context).colorScheme.onError,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }

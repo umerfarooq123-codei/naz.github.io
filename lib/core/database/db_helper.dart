@@ -8,7 +8,8 @@ class DBHelper {
   static final DBHelper _instance = DBHelper._internal();
   factory DBHelper() => _instance;
   DBHelper._internal();
-  final int version = 12; // Incremented version to force schema update
+  final int version =
+      1; // Incremented version to force schema update and add cans tables
   static Database? _database;
 
   Future<Database> get database async {
@@ -153,6 +154,42 @@ class DBHelper {
         notes TEXT,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
+      )
+    ''');
+
+    // Create cans table
+    await db.execute('''
+      CREATE TABLE cans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        accountName TEXT NOT NULL,
+        accountId INTEGER,
+        openingBalanceCans REAL NOT NULL DEFAULT 0,
+        currentCans REAL NOT NULL DEFAULT 0,
+        totalCans REAL NOT NULL DEFAULT 0,
+        receivedCans REAL NOT NULL DEFAULT 0,
+        insertedDate TEXT NOT NULL,
+        updatedDate TEXT NOT NULL,
+        UNIQUE(accountId, accountName)
+      )
+    ''');
+
+    // Create cans_entries table
+    await db.execute('''
+      CREATE TABLE cans_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cansId INTEGER NOT NULL,
+        voucherNo TEXT NOT NULL,
+        accountId INTEGER,
+        accountName TEXT NOT NULL,
+        date TEXT NOT NULL,
+        transactionType TEXT NOT NULL,
+        currentCans REAL NOT NULL DEFAULT 0,
+        receivedCans REAL NOT NULL DEFAULT 0,
+        balance REAL NOT NULL DEFAULT 0,
+        description TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY(cansId) REFERENCES cans(id) ON DELETE CASCADE
       )
     ''');
   }
@@ -344,24 +381,50 @@ class DBHelper {
   Future<double> getTotalSales() async {
     final db = await database;
     try {
-      final result = await db.rawQuery('''
-      SELECT
-        SUM(debit) AS total_debit,
-        SUM(credit) AS total_credit
-      FROM ledger
+      // Auto-detect current month in 'YYYY-MM' format
+      final now = DateTime.now(); // e.g., 2025-12-29
+      final currentMonth =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}'; // '2025-12'
+
+      // Get all ledger entry tables
+      final tablesResult = await db.rawQuery('''
+      SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name LIKE 'ledger_entries_%'
     ''');
 
-      if (result.isNotEmpty) {
-        final row = result.first;
-        final totalDebit = (row['total_debit'] as num?)?.toDouble() ?? 0.0;
-        final totalCredit = (row['total_credit'] as num?)?.toDouble() ?? 0.0;
+      if (tablesResult.isEmpty) return 0.0;
 
-        return totalDebit + totalCredit;
+      double totalSales = 0.0;
+
+      // Loop through each ledger table
+      for (final table in tablesResult) {
+        final tableName = table['name'] as String;
+
+        final result = await db.rawQuery(
+          '''
+        SELECT SUM(COALESCE(debit, 0) + COALESCE(credit, 0)) AS monthly_total
+        FROM `$tableName`
+        WHERE (
+          CASE
+            WHEN typeof(date) = 'integer' THEN strftime('%Y-%m', datetime(date / 1000, 'unixepoch'))
+            WHEN date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' THEN substr(date, 1, 7)
+            WHEN date GLOB '[0-9][0-9]/[0-9][0-9]/[0-9][0-9][0-9][0-9]' THEN substr(date, 7, 4) || '-' || substr(date, 4, 2)
+            ELSE NULL
+          END
+        ) = ?
+          AND (debit > 0 OR credit > 0)
+      ''',
+          [currentMonth],
+        );
+
+        if (result.isNotEmpty && result.first['monthly_total'] != null) {
+          totalSales += (result.first['monthly_total'] as num).toDouble();
+        }
       }
 
-      return 0.0;
+      return totalSales;
     } catch (e) {
-      print('Error getting total debit and credit: $e');
+      debugPrint('Error calculating total sales for current month: $e');
       return 0.0;
     }
   }
@@ -522,16 +585,15 @@ class DBHelper {
   Future<List<Map<String, dynamic>>> fetchSalesTrendBetweenMonths(
     String startMonth,
     String endMonth, {
-    String type = 'debit', // 'debit', 'credit', or 'both'
+    String type = 'both', // 'debit', 'credit', or 'both'
   }) async {
     final db = await database;
     try {
-      // Validate type
       if (!['debit', 'credit', 'both'].contains(type)) {
-        type = 'debit';
+        type = 'both';
       }
 
-      // Get all ledger tables
+      // Get all ledger entry tables
       final tablesResult = await db.rawQuery('''
       SELECT name FROM sqlite_master
       WHERE type = 'table' AND name LIKE 'ledger_entries_%'
@@ -539,7 +601,6 @@ class DBHelper {
 
       if (tablesResult.isEmpty) return [];
 
-      // Build column selection based on type
       final String amountColumn = type == 'both'
           ? 'COALESCE(credit, 0) + COALESCE(debit, 0)'
           : type == 'credit'
@@ -552,17 +613,17 @@ class DBHelper {
           ? 'credit IS NOT NULL AND credit > 0'
           : 'debit IS NOT NULL AND debit > 0';
 
-      // Union all relevant data from every partition
-      final unionQueries = tablesResult
-          .map((t) {
-            final tableName = t['name'] as String;
-            return '''
+      // Build list of individual SELECT queries
+      final List<String> selectQueries = [];
+      for (final t in tablesResult) {
+        final tableName = t['name'] as String;
+        selectQueries.add('''
         SELECT
           CASE
             WHEN date IS NULL THEN NULL
             WHEN typeof(date) = 'integer' THEN strftime('%Y-%m', datetime(date / 1000, 'unixepoch'))
             WHEN date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' THEN substr(date, 1, 7)
-            WHEN date GLOB '[0-9][0-9]/[0-9][0-9]/[0-9][0-9][0-9][0-9]' THEN substr(date, 7, 4) || '-' || substr(date, 4, 2)
+            WHEN date GLOB '[0-9][0-9]/[0-9]/[0-9][0-9][0-9][0-9][0-9]' THEN substr(date, 7, 4) || '-' || substr(date, 4, 2)
             ELSE NULL
           END AS month,
           $amountColumn AS amount
@@ -570,14 +631,15 @@ class DBHelper {
         WHERE month IS NOT NULL
           AND month BETWEEN ? AND ?
           AND $whereCondition
-      ''';
-          })
-          .join(' UNION ALL ');
+      ''');
+      }
 
-      if (unionQueries.trim().isEmpty) return [];
+      if (selectQueries.isEmpty) return [];
 
-      // Final query with recursive month generation + totals
-      final query =
+      final String unionQueries = selectQueries.join(' UNION ALL ');
+
+      // Build final query
+      final String query =
           '''
       WITH RECURSIVE months(m) AS (
         SELECT ?
@@ -596,18 +658,20 @@ class DBHelper {
       ORDER BY m ASC
     ''';
 
-      final result = await db.rawQuery(query, [
-        startMonth,
-        endMonth,
-        startMonth,
-        endMonth,
-      ]);
+      // Build arguments list: first two for CTE, then two for EACH table
+      final List<Object?> args = [startMonth, endMonth];
+      for (int i = 0; i < tablesResult.length; i++) {
+        args.add(startMonth);
+        args.add(endMonth);
+      }
+
+      final result = await db.rawQuery(query, args);
 
       return result
           .map(
             (row) => {
-              'month': row['month'] as String,
-              'total_sales': (row['total_sales'] as num).toDouble(),
+              'month': row['month'] as String?,
+              'total_sales': (row['total_sales'] as num?)?.toDouble() ?? 0.0,
             },
           )
           .toList();

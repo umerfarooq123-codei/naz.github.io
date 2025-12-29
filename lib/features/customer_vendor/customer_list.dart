@@ -180,7 +180,7 @@ class _CustomerListState extends State<CustomerList> {
                                       crossAxisCount: gridAxisCount,
                                       crossAxisSpacing: 10,
                                       mainAxisSpacing: 10,
-                                      childAspectRatio: 2.35 / 1.20,
+                                      childAspectRatio: 2.2 / 1.20,
                                     ),
                                 itemCount: controller.filteredCustomers.length,
                                 itemBuilder: (context, index) {

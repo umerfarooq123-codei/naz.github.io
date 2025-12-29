@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -28,6 +29,22 @@ class CustomerRepository {
       'customer',
       where: 'id = ?',
       whereArgs: [accountId],
+      limit: 1,
+    );
+
+    if (result.isNotEmpty) {
+      return Customer.fromMap(result.first);
+    } else {
+      return null;
+    }
+  }
+
+  Future<Customer?> getCustomerByName(String customerName) async {
+    final db = await _dbHelper.database;
+    final result = await db.query(
+      'customer',
+      where: 'name = ? AND type = \'Customer\'',
+      whereArgs: [customerName.toLowerCase()],
       limit: 1,
     );
 
@@ -238,23 +255,36 @@ class CustomerLedgerRepository {
     final db = await _dbHelper.database;
     final tableName = _tableNameFromCustomerName(customerName, customerId);
 
+    debugPrint('=== fetchTotalDebitAndCredit ===');
+    debugPrint('customerName: $customerName');
+    debugPrint('customerId: $customerId');
+    debugPrint('tableName: $tableName');
+
     try {
       await createCustomerLedgerTable(customerName, customerId);
 
       final result = await db.rawQuery('''
       SELECT
-        SUM(debit) AS totalDebit,
-        SUM(credit) AS totalCredit
+        COALESCE(SUM(debit), 0) AS totalDebit,
+        COALESCE(SUM(credit), 0) AS totalCredit
       FROM $tableName
     ''');
 
-      final row = result.first;
+      debugPrint('result.isEmpty: ${result.isEmpty}');
+      if (result.isNotEmpty) {
+        debugPrint('row: ${result.first}');
+      }
+
+      final row = result.firstOrNull ?? {};
 
       final totalDebit = (row['totalDebit'] ?? 0).toString();
       final totalCredit = (row['totalCredit'] ?? 0).toString();
 
+      debugPrint('RETURNING => debit: $totalDebit, credit: $totalCredit');
+
       return DebitCreditSummary(debit: totalDebit, credit: totalCredit);
     } catch (e) {
+      debugPrint('ERROR in fetchTotalDebitAndCredit: $e');
       return DebitCreditSummary(debit: "0", credit: "0");
     }
   }

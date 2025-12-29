@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:ledger_master/core/models/purchase.dart';
 import 'package:ledger_master/features/purchases_expenses/purchase_expense_repository.dart';
 import 'package:ledger_master/main.dart';
+import 'package:ledger_master/shared/components/constants.dart';
 
 class ExpensePurchaseScreen extends StatelessWidget {
   const ExpensePurchaseScreen({super.key});
@@ -113,7 +114,7 @@ class ExpensePurchaseList extends StatelessWidget {
                           controller.filteredExpensePurchases[index];
                       return Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: _buildExpenseTile(
+                        child: buildExpenseTile(
                           expense,
                           controller,
                           theme,
@@ -319,7 +320,7 @@ class ExpensePurchaseList extends StatelessWidget {
     );
   }
 
-  Widget _buildExpenseTile(
+  Widget buildExpenseTile(
     ExpensePurchase expense,
     ExpensePurchaseGetxController controller,
     ThemeData theme,
@@ -369,23 +370,45 @@ class ExpensePurchaseList extends StatelessWidget {
             ),
           ],
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              expense.amount.toStringAsFixed(2),
-              style: theme.textTheme.bodyLarge!.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.bold,
+            // Amount
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  expense.amount.toStringAsFixed(2),
+                  style: theme.textTheme.bodyLarge!.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  expense.paymentMethod,
+                  style: theme.textTheme.bodySmall!.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            // Delete Icon Button
+            deleteButton(
+              context: context,
+              onPressed: () => confirmDeleteDialog(
+                onConfirm: () async {
+                  await controller.deleteExpensePurchase(expense.id!);
+                },
+                context: context,
               ),
             ),
-            Text(
-              expense.paymentMethod,
-              style: theme.textTheme.bodySmall!.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-              ),
-            ),
+            // IconButton(
+            //   icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
+            //   tooltip: 'Delete expense',
+            //   onPressed: () => _showDeleteConfirmDialog(context, expense, controller),
+            // ),
           ],
         ),
         onTap: () => _showExpenseDetails(context, expense, controller),
@@ -443,16 +466,13 @@ class ExpensePurchaseList extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _entryRow("Description", expense.description),
-                          _entryRow("Category", expense.category),
-                          _entryRow("Date", dateFormat.format(expense.date)),
-                          _entryRow(
-                            "Amount",
-                            expense.amount.toStringAsFixed(2),
-                          ),
-                          _entryRow("Made By", expense.madeBy),
-                          _entryRow("Payment Method", expense.paymentMethod),
-                          _entryRow(
+                          entryRow("Description", expense.description),
+                          entryRow("Category", expense.category),
+                          entryRow("Date", dateFormat.format(expense.date)),
+                          entryRow("Amount", expense.amount.toStringAsFixed(2)),
+                          entryRow("Made By", expense.madeBy),
+                          entryRow("Payment Method", expense.paymentMethod),
+                          entryRow(
                             "Reference No",
                             expense.referenceNumber ?? "-",
                           ),
@@ -486,11 +506,11 @@ class ExpensePurchaseList extends StatelessWidget {
                             const SizedBox(height: 12),
                             const Divider(color: Colors.white24),
                           ],
-                          _entryRow(
+                          entryRow(
                             "Created At",
                             dateFormat.format(expense.createdAt),
                           ),
-                          _entryRow(
+                          entryRow(
                             "Updated At",
                             dateFormat.format(expense.updatedAt),
                           ),
@@ -531,7 +551,7 @@ class ExpensePurchaseList extends StatelessWidget {
     );
   }
 
-  Widget _entryRow(String label, String value) {
+  Widget entryRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -1042,13 +1062,7 @@ class ExpensePurchaseGetxController extends GetxController {
   ];
 
   // Payment methods
-  final List<String> paymentMethods = [
-    'Cash',
-    'Bank Transfer',
-    'Cheque',
-    'Credit Card',
-    'Digital Payment',
-  ];
+  final List<String> paymentMethods = ['Cash'];
 
   @override
   void onInit() {
