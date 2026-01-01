@@ -30,6 +30,7 @@ class _CansEntryAddEditState extends State<CansEntryAddEdit> {
   late TextEditingController _descriptionController;
   late Rx<String> _selectedType;
   late DateTime _selectedDate;
+  late ValueNotifier<int> _balanceUpdate;
 
   @override
   void initState() {
@@ -40,6 +41,7 @@ class _CansEntryAddEditState extends State<CansEntryAddEdit> {
     _currentCansController = TextEditingController();
     _receivedCansController = TextEditingController();
     _descriptionController = TextEditingController();
+    _balanceUpdate = ValueNotifier<int>(0);
 
     if (widget.entry != null) {
       _selectedDate = widget.entry!.date;
@@ -54,6 +56,10 @@ class _CansEntryAddEditState extends State<CansEntryAddEdit> {
       _dateController.text = DateFormat('dd-MM-yyyy').format(_selectedDate);
       _selectedType = 'Received'.obs;
     }
+
+    // Add listeners to update balance summary in real-time
+    _currentCansController.addListener(_updateBalance);
+    _receivedCansController.addListener(_updateBalance);
   }
 
   @override
@@ -63,7 +69,33 @@ class _CansEntryAddEditState extends State<CansEntryAddEdit> {
     _currentCansController.dispose();
     _receivedCansController.dispose();
     _descriptionController.dispose();
+    _balanceUpdate.dispose();
     super.dispose();
+  }
+
+  void _updateBalance() {
+    _balanceUpdate.value = DateTime.now().millisecondsSinceEpoch;
+  }
+
+  /// Calculate the previous balance (running balance from all previous entries)
+  double _calculatePreviousBalance() {
+    double balance = widget.cans.openingBalanceCans;
+
+    // Get entries sorted by createdAt ascending (oldest first for balance calculation)
+    final sortedEntries = List<CansEntry>.from(widget.controller.cansEntries);
+    sortedEntries.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+    // If editing, calculate balance up to (but not including) this entry
+    // If adding, calculate balance of all entries
+    for (var entry in sortedEntries) {
+      if (widget.entry != null && entry.id == widget.entry!.id) {
+        // Stop at the current entry when editing
+        break;
+      }
+      balance += entry.currentCans - entry.receivedCans;
+    }
+
+    return balance;
   }
 
   @override
@@ -145,41 +177,6 @@ class _CansEntryAddEditState extends State<CansEntryAddEdit> {
                             return null;
                           },
                         ),
-                        const SizedBox(height: 16),
-                        Obx(
-                          () => DropdownButtonFormField<String>(
-                            initialValue: _selectedType.value,
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'Received',
-                                child: Text('Received'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'Issued',
-                                child: Text('Issued'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'Return',
-                                child: Text('Return'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'Adjustment',
-                                child: Text('Adjustment'),
-                              ),
-                            ],
-                            onChanged: (value) {
-                              if (value != null) {
-                                _selectedType.value = value;
-                              }
-                            },
-                            decoration: InputDecoration(
-                              labelText: 'Transaction Type',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
                       ]),
                       const SizedBox(height: 24),
                       _buildSection('Cans Details', [
@@ -224,6 +221,79 @@ class _CansEntryAddEditState extends State<CansEntryAddEdit> {
                               return 'Please enter a valid number';
                             }
                             return null;
+                          },
+                        ),
+                      ]),
+                      const SizedBox(height: 24),
+                      _buildSection('Balance Summary', [
+                        ValueListenableBuilder<int>(
+                          valueListenable: _balanceUpdate,
+                          builder: (context, _, __) {
+                            // Calculate previous balance based on all existing entries
+                            final previousCans = _calculatePreviousBalance();
+                            final currentCans =
+                                double.tryParse(_currentCansController.text) ??
+                                0.0;
+                            final totalCans = previousCans + currentCans;
+                            final receivedCans =
+                                double.tryParse(_receivedCansController.text) ??
+                                0.0;
+                            final finalBalance = totalCans - receivedCans;
+
+                            return Column(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.surface,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.outlineVariant,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      _buildBalanceRow(
+                                        'Previous Cans',
+                                        previousCans.toStringAsFixed(2),
+                                        context,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _buildBalanceRow(
+                                        'Current Cans',
+                                        currentCans.toStringAsFixed(2),
+                                        context,
+                                      ),
+                                      const Divider(height: 16),
+                                      _buildBalanceRow(
+                                        'Total Cans',
+                                        totalCans.toStringAsFixed(2),
+                                        context,
+                                        isBold: true,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _buildBalanceRow(
+                                        'Received Cans',
+                                        receivedCans.toStringAsFixed(2),
+                                        context,
+                                      ),
+                                      const Divider(height: 16),
+                                      _buildBalanceRow(
+                                        'Final Balance',
+                                        finalBalance.toStringAsFixed(2),
+                                        context,
+                                        isBold: true,
+                                        color: Colors.red,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
                           },
                         ),
                       ]),
@@ -284,7 +354,7 @@ class _CansEntryAddEditState extends State<CansEntryAddEdit> {
                                         widget.cans.openingBalanceCans +
                                         double.parse(
                                           _currentCansController.text,
-                                        ) +
+                                        ) -
                                         double.parse(
                                           _receivedCansController.text,
                                         ),
@@ -347,6 +417,33 @@ class _CansEntryAddEditState extends State<CansEntryAddEdit> {
         ),
         const SizedBox(height: 12),
         ...children,
+      ],
+    );
+  }
+
+  Widget _buildBalanceRow(
+    String label,
+    String value,
+    BuildContext context, {
+    bool isBold = false,
+    Color? color,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            fontWeight: isBold ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            fontWeight: isBold ? FontWeight.w600 : FontWeight.w500,
+            color: color,
+          ),
+        ),
       ],
     );
   }

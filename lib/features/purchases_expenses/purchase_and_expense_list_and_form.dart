@@ -14,6 +14,7 @@ class ExpensePurchaseScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BaseLayout(
       showBackButton: false,
+      onBackButtonPressed: null,
       appBarTitle: "Purchases and Expenses",
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,

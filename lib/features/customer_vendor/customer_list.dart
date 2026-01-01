@@ -5,6 +5,8 @@ import 'package:ledger_master/core/models/ledger.dart';
 import 'package:ledger_master/features/customer_vendor/customer_ledger_table.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/features/ledger/ledger_repository.dart';
+import 'package:ledger_master/features/vendor_ledger/vendor_ledger_table_controller.dart';
+import 'package:ledger_master/features/vendor_ledger/vendor_ledger_table_page.dart';
 import 'package:ledger_master/main.dart';
 import 'package:ledger_master/shared/components/constants.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
@@ -22,18 +24,18 @@ class CustomerList extends StatefulWidget {
 
 class _CustomerListState extends State<CustomerList> {
   @override
-  void initState() {
-    super.initState();
+  Widget build(BuildContext context) {
+    final vendController = Get.put(
+      VendorLedgerTableController(),
+      permanent: true,
+    );
     final controller = Get.find<CustomerController>();
     controller.clearSearch();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       controller.loadRecentSearches();
       controller.fetchCustomers();
     });
-  }
 
-  @override
-  Widget build(BuildContext context) {
     int gridAxisCount = 0;
     switch (MediaQuery.of(context).size.width ~/ 200) {
       case 1:
@@ -55,12 +57,12 @@ class _CustomerListState extends State<CustomerList> {
         gridAxisCount = 5;
     }
 
-    final controller = Get.find<CustomerController>();
     return Obx(
       () => Stack(
         children: [
           BaseLayout(
             showBackButton: false,
+            onBackButtonPressed: null,
             appBarTitle: 'Customers & Vendors',
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -187,6 +189,19 @@ class _CustomerListState extends State<CustomerList> {
                                   final customer =
                                       controller.filteredCustomers[index];
 
+                                  // FIXED: Don't modify state during build
+                                  // Store the vendor reference without triggering state changes
+                                  final isVendor =
+                                      customer.type.toLowerCase() == 'vendor';
+                                  WidgetsBinding.instance.addPostFrameCallback((
+                                    _,
+                                  ) {
+                                    if (isVendor) {
+                                      vendController.currentVendor.value =
+                                          customer;
+                                      vendController.updateReactiveTotals();
+                                    }
+                                  });
                                   return Card(
                                     elevation: 0,
                                     shape: RoundedRectangleBorder(
@@ -200,18 +215,22 @@ class _CustomerListState extends State<CustomerList> {
                                     ),
                                     child: InkWell(
                                       onTap: () {
-                                        if (customer.type.toLowerCase() ==
-                                            'customer') {
+                                        // Set vendor state here in the callback, not during build
+                                        if (isVendor) {
+                                          vendController.currentVendor.value =
+                                              customer;
+                                          NavigationHelper.pushReplacement(
+                                            context,
+                                            VendorLedgerTablePage(
+                                              vendor: customer,
+                                            ),
+                                          );
+                                        } else {
                                           NavigationHelper.push(
                                             context,
                                             CustomerLedgerTablePage(
                                               customer: customer,
                                             ),
-                                          );
-                                        } else {
-                                          showCustomerDetailsDialog(
-                                            customer,
-                                            controller,
                                           );
                                         }
                                       },
@@ -310,19 +329,12 @@ class _CustomerListState extends State<CustomerList> {
                                                                   width: 20,
                                                                 );
                                                               }
-
                                                               if (snapshot
                                                                   .hasError) {
                                                                 return Text(
                                                                   'Error: ${snapshot.error}',
-                                                                  style: TextStyle(
-                                                                    color: Theme.of(
-                                                                      context,
-                                                                    ).colorScheme.error,
-                                                                  ),
                                                                 );
                                                               }
-
                                                               if (!snapshot
                                                                   .hasData) {
                                                                 return const Text(
@@ -334,30 +346,77 @@ class _CustomerListState extends State<CustomerList> {
                                                                   snapshot
                                                                       .data!;
 
-                                                              return Column(
-                                                                mainAxisSize:
-                                                                    MainAxisSize
-                                                                        .min,
-                                                                crossAxisAlignment:
-                                                                    CrossAxisAlignment
-                                                                        .start,
-                                                                children: [
-                                                                  if (snapshott
-                                                                          .connectionState ==
-                                                                      ConnectionState
-                                                                          .waiting)
-                                                                    const SizedBox(
-                                                                      height:
-                                                                          20,
-                                                                      width: 20,
-                                                                    )
-                                                                  else
-                                                                    snapshott.data !=
-                                                                                0 ||
-                                                                            snapshott.data !=
+                                                              // Fetch actual ledger debit for correct net balance
+                                                              return FutureBuilder<
+                                                                DebitCreditSummary
+                                                              >(
+                                                                future: CustomerLedgerRepository()
+                                                                    .fetchTotalDebitAndCredit(
+                                                                      customer
+                                                                          .name,
+                                                                      customer
+                                                                          .id!,
+                                                                    ),
+                                                                builder:
+                                                                    (
+                                                                      context,
+                                                                      ledgerSnapshot,
+                                                                    ) {
+                                                                      final ledgerDebit =
+                                                                          ledgerSnapshot
+                                                                              .hasData
+                                                                          ? double.tryParse(
+                                                                                  ledgerSnapshot.data!.debit,
+                                                                                ) ??
                                                                                 0.0
-                                                                        ? Text(
-                                                                            "Opening Bal: ${NumberFormat('#,##0').format(snapshott.data)}",
+                                                                          : 0.0;
+
+                                                                      final openingBalance =
+                                                                          snapshott
+                                                                              .data ??
+                                                                          0.0;
+
+                                                                      return Column(
+                                                                        mainAxisSize:
+                                                                            MainAxisSize.min,
+                                                                        crossAxisAlignment:
+                                                                            CrossAxisAlignment.start,
+                                                                        children: [
+                                                                          // Opening Balance
+                                                                          if (snapshott.connectionState ==
+                                                                              ConnectionState.waiting)
+                                                                            const SizedBox(
+                                                                              height: 20,
+                                                                              width: 20,
+                                                                            )
+                                                                          else if (openingBalance !=
+                                                                                  0 &&
+                                                                              openingBalance !=
+                                                                                  0.0)
+                                                                            Text(
+                                                                              isVendor
+                                                                                  ? "Opening Bal: ${NumberFormat('#,##0').format(vendController.openingBalance)}"
+                                                                                  : "Opening Bal: ${NumberFormat('#,##0').format(openingBalance)}",
+                                                                              style:
+                                                                                  Theme.of(
+                                                                                    context,
+                                                                                  ).textTheme.bodySmall!.copyWith(
+                                                                                    color: Theme.of(
+                                                                                      context,
+                                                                                    ).colorScheme.error,
+                                                                                    fontWeight: FontWeight.bold,
+                                                                                  ),
+                                                                              overflow: TextOverflow.ellipsis,
+                                                                              maxLines: 1,
+                                                                            )
+                                                                          else
+                                                                            const SizedBox.shrink(),
+
+                                                                          // Net Balance (Correct calculation)
+                                                                          Text(
+                                                                            isVendor
+                                                                                ? 'Net Balance: ${NumberFormat('#,##0').format(vendController.rxNetBalance.value)}'
+                                                                                : 'Net Balance: ${NumberFormat('#,##0').format(((double.parse(summary.credit) + openingBalance) - ledgerDebit).clamp(0, double.infinity))}',
                                                                             style:
                                                                                 Theme.of(
                                                                                   context,
@@ -371,62 +430,50 @@ class _CustomerListState extends State<CustomerList> {
                                                                                 TextOverflow.ellipsis,
                                                                             maxLines:
                                                                                 1,
-                                                                          )
-                                                                        : SizedBox.shrink(),
-                                                                  Text(
-                                                                    'Net Balance: ${NumberFormat('#,##0').format(((double.parse(summary.credit) + (snapshott.data ?? 0)) - double.parse(summary.debit)).clamp(0, double.infinity))}',
-
-                                                                    style: Theme.of(context)
-                                                                        .textTheme
-                                                                        .bodySmall!
-                                                                        .copyWith(
-                                                                          color: Theme.of(
-                                                                            context,
-                                                                          ).colorScheme.error,
-                                                                          fontWeight:
-                                                                              FontWeight.bold,
-                                                                        ),
-                                                                    overflow:
-                                                                        TextOverflow
-                                                                            .ellipsis,
-                                                                    maxLines: 1,
-                                                                  ),
-                                                                  Text(
-                                                                    'Credit: ${NumberFormat('#,##0').format(double.parse(summary.credit))}',
-
-                                                                    style: Theme.of(context)
-                                                                        .textTheme
-                                                                        .bodySmall!
-                                                                        .copyWith(
-                                                                          color: Theme.of(
-                                                                            context,
-                                                                          ).colorScheme.error,
-                                                                          fontWeight:
-                                                                              FontWeight.bold,
-                                                                        ),
-                                                                    overflow:
-                                                                        TextOverflow
-                                                                            .ellipsis,
-                                                                    maxLines: 1,
-                                                                  ),
-                                                                  Text(
-                                                                    'Debit: ${NumberFormat('#,##0').format(double.parse(summary.debit))}',
-                                                                    style: Theme.of(context)
-                                                                        .textTheme
-                                                                        .bodySmall!
-                                                                        .copyWith(
-                                                                          color: const Color(
-                                                                            0xFF2E7D32,
                                                                           ),
-                                                                          fontWeight:
-                                                                              FontWeight.bold,
-                                                                        ),
-                                                                    overflow:
-                                                                        TextOverflow
-                                                                            .ellipsis,
-                                                                    maxLines: 1,
-                                                                  ),
-                                                                ],
+
+                                                                          // Credit
+                                                                          Text(
+                                                                            isVendor
+                                                                                ? 'Credit: ${NumberFormat('#,##0').format(vendController.rxTotalCredit.value)}'
+                                                                                : 'Credit: ${NumberFormat('#,##0').format(double.parse(summary.credit))}',
+                                                                            style:
+                                                                                Theme.of(
+                                                                                  context,
+                                                                                ).textTheme.bodySmall!.copyWith(
+                                                                                  color: Theme.of(
+                                                                                    context,
+                                                                                  ).colorScheme.error,
+                                                                                  fontWeight: FontWeight.bold,
+                                                                                ),
+                                                                            overflow:
+                                                                                TextOverflow.ellipsis,
+                                                                            maxLines:
+                                                                                1,
+                                                                          ),
+
+                                                                          // Debit (from transactions)
+                                                                          Text(
+                                                                            isVendor
+                                                                                ? 'Debit: ${NumberFormat('#,##0').format(vendController.rxTotalDebit.value)}'
+                                                                                : 'Debit: ${NumberFormat('#,##0').format(double.parse(summary.debit))}',
+                                                                            style:
+                                                                                Theme.of(
+                                                                                  context,
+                                                                                ).textTheme.bodySmall!.copyWith(
+                                                                                  color: const Color(
+                                                                                    0xFF2E7D32,
+                                                                                  ),
+                                                                                  fontWeight: FontWeight.bold,
+                                                                                ),
+                                                                            overflow:
+                                                                                TextOverflow.ellipsis,
+                                                                            maxLines:
+                                                                                1,
+                                                                          ),
+                                                                        ],
+                                                                      );
+                                                                    },
                                                               );
                                                             },
                                                           );
@@ -434,6 +481,7 @@ class _CustomerListState extends State<CustomerList> {
                                                       ),
                                                     ),
                                                   ),
+
                                                   const SizedBox(width: 4),
                                                   Column(
                                                     mainAxisSize:
@@ -507,171 +555,6 @@ class _CustomerListState extends State<CustomerList> {
                 await controller.fetchCustomers();
               },
               child: const Icon(Icons.add),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void showCustomerDetailsDialog(
-    Customer customer,
-    CustomerController controller,
-  ) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Customer Details - ${customer.customerNo}',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Name: ${customer.name}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              Text(
-                'Customer No: ${customer.customerNo}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              Text(
-                'Address: ${customer.address}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              Text(
-                'Mobile No: ${customer.mobileNo}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              Text(
-                'NTN No: ${customer.ntnNo}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 6.0,
-                  horizontal: 6.0,
-                ),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                    width: 1,
-                  ),
-                ),
-                child: FutureBuilder<DebitCreditSummary>(
-                  future: controller.getCustomerDebitCredit(
-                    customer.name,
-                    customer.type,
-                    customer.id!,
-                  ),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const SizedBox(height: 20, width: 20);
-                    }
-
-                    if (snapshot.hasError) {
-                      return Text(
-                        'Error: ${snapshot.error}',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      );
-                    }
-
-                    if (!snapshot.hasData) {
-                      return const Text('No data');
-                    }
-
-                    final summary = snapshot.data!;
-
-                    return FutureBuilder<double>(
-                      future: CustomerRepository().getOpeningBalanceForCustomer(
-                        customer.name,
-                      ),
-                      builder: (context, snapshott) {
-                        if (snapshott.connectionState ==
-                            ConnectionState.waiting) {
-                          return const SizedBox(height: 20, width: 20);
-                        }
-
-                        if (snapshott.hasError || !snapshott.hasData) {
-                          return const Text('No opening balance data');
-                        }
-
-                        final openingBalance = snapshott.data ?? 0.0;
-
-                        return Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (openingBalance != 0)
-                              Text(
-                                "Opening Balance: ${NumberFormat('#,##0').format(openingBalance)}",
-                                style: Theme.of(context).textTheme.bodySmall!
-                                    .copyWith(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.error,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 1,
-                              ),
-                            Text(
-                              'Net Balance: ${NumberFormat('#,##0').format((double.parse(summary.credit) + openingBalance - double.parse(summary.debit)).clamp(0, double.infinity))}',
-
-                              style: Theme.of(context).textTheme.bodySmall!
-                                  .copyWith(
-                                    color: Theme.of(context).colorScheme.error,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                            Text(
-                              'Credit: ${summary.credit}',
-                              style: Theme.of(context).textTheme.bodySmall!
-                                  .copyWith(
-                                    color: Theme.of(context).colorScheme.error,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                            Text(
-                              'Debit: ${summary.debit}',
-                              style: Theme.of(context).textTheme.bodySmall!
-                                  .copyWith(
-                                    color: const Color(0xFF2E7D32),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Close',
-              style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: 0.8),
-              ),
             ),
           ),
         ],

@@ -21,7 +21,7 @@ class ReceiptItem {
   ReceiptItem({
     required this.name,
     required this.price,
-    required this.canQuantity,
+    this.canQuantity = 0,
     required this.type,
     required this.description,
     required this.amount,

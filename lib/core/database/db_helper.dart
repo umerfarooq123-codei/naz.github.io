@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:ledger_master/core/models/customer.dart';
 import 'package:ledger_master/core/models/item.dart';
 import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -8,8 +9,7 @@ class DBHelper {
   static final DBHelper _instance = DBHelper._internal();
   factory DBHelper() => _instance;
   DBHelper._internal();
-  final int version =
-      1; // Incremented version to force schema update and add cans tables
+  final int version = 4; // Incremented version to update cans table schema
   static Database? _database;
 
   Future<Database> get database async {
@@ -190,6 +190,29 @@ class DBHelper {
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
         FOREIGN KEY(cansId) REFERENCES cans(id) ON DELETE CASCADE
+      )
+    ''');
+
+    // Create vendor_ledger_entries table (for tracking vendor transactions)
+    await db.execute('''
+      CREATE TABLE vendor_ledger_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        voucherNo TEXT NOT NULL,
+        vendorName TEXT NOT NULL,
+        vendorId INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        description TEXT,
+        debit REAL NOT NULL DEFAULT 0.0,
+        credit REAL NOT NULL DEFAULT 0.0,
+        balance REAL NOT NULL DEFAULT 0.0,
+        transactionType TEXT NOT NULL,
+        paymentMethod TEXT,
+        chequeNo TEXT,
+        chequeAmount REAL,
+        chequeDate TEXT,
+        bankName TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
       )
     ''');
   }
@@ -429,53 +452,124 @@ class DBHelper {
     }
   }
 
-  // 2. Function to count all Receivables
+  // 2. Function to count all Receivables (sum of all customer balances)
+  // Formula: Same as Net Balance = ((General Ledger Credit + Customer Ledger Credit + Opening) - Customer Ledger Debit)
   Future<double> getTotalReceivables() async {
     final db = await database;
 
     try {
-      // Fetch all ledger tables
-      final tables = await db.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'ledger_entries_%'",
-      );
+      double totalReceivables = 0.0;
 
-      double totalCredit = 0.0;
-      double totalDebit = 0.0;
+      // Get all customers to calculate their individual balances
+      final customerResult = await db.query('customer');
+      final customers = customerResult.map((e) => Customer.fromMap(e)).toList();
 
-      for (final table in tables) {
-        final tableName = table['name'] as String;
+      for (final customer in customers) {
+        // Fetch opening balance (already non-nullable in Customer model)
+        final openingBalance = customer.openingBalance;
 
-        // --- FETCH TOTAL CREDIT ---
-        final creditResult = await db.rawQuery('''
-        SELECT SUM(credit) AS total_credit
-        FROM $tableName
-        WHERE credit > 0
-      ''');
+        // 1. Fetch from GENERAL LEDGER (all ledger_entries_* tables)
+        double generalLedgerCredit = 0.0;
 
-        if (creditResult.isNotEmpty) {
-          final credit = creditResult.first['total_credit'] as num?;
-          totalCredit += (credit ?? 0).toDouble();
+        // Get all ledger entry tables
+        final tablesResult = await db.rawQuery('''
+          SELECT name FROM sqlite_master
+          WHERE type='table' AND name LIKE 'ledger_entries_%'
+        ''');
+
+        for (final tableRow in tablesResult) {
+          final tableName = tableRow['name'] as String;
+
+          // For each ledger_entries_* table, check if it has entries for this customer
+          final result = await db.rawQuery(
+            '''
+            SELECT COALESCE(SUM(CASE WHEN credit > 0 THEN credit ELSE 0 END), 0) as totalCredit
+            FROM $tableName
+            WHERE UPPER(accountName) = UPPER(?)
+          ''',
+            [customer.name],
+          );
+
+          if (result.isNotEmpty) {
+            final credit =
+                (result.first['totalCredit'] as num?)?.toDouble() ?? 0.0;
+            print('📊 $tableName credit for ${customer.name}: $credit');
+            generalLedgerCredit += credit;
+          }
         }
 
-        // --- FETCH TOTAL DEBIT ---
-        final debitResult = await db.rawQuery('''
-        SELECT SUM(debit) AS total_debit
-        FROM $tableName
-        WHERE debit > 0
-      ''');
+        // If no ledger_entries tables found, try querying main ledger table instead
+        if (tablesResult.isEmpty) {
+          print(
+            '📊 No ledger_entries_* tables found, querying main ledger table',
+          );
+          final mainResult = await db.rawQuery(
+            '''
+            SELECT COALESCE(SUM(CASE WHEN credit > 0 THEN credit ELSE 0 END), 0) as totalCredit
+            FROM ledger
+            WHERE UPPER(accountName) = UPPER(?)
+          ''',
+            [customer.name],
+          );
 
-        if (debitResult.isNotEmpty) {
-          final debit = debitResult.first['total_debit'] as num?;
-          totalDebit += (debit ?? 0).toDouble();
+          if (mainResult.isNotEmpty) {
+            generalLedgerCredit =
+                (mainResult.first['totalCredit'] as num?)?.toDouble() ?? 0.0;
+            print(
+              '📊 Main ledger credit for ${customer.name}: $generalLedgerCredit',
+            );
+          }
         }
+
+        // 2. Fetch from CUSTOMER LEDGER (customer_ledger_entries_* tables)
+        final custTableName = _sanitizeTableName(customer.name, customer.id!);
+
+        // Check if customer ledger table exists before querying
+        final tableExists = await db.rawQuery(
+          '''SELECT name FROM sqlite_master WHERE type='table' AND name=?''',
+          [custTableName],
+        );
+
+        double custDebit = 0.0;
+        double custCredit = 0.0;
+
+        if (tableExists.isNotEmpty) {
+          final custResult = await db.rawQuery('''
+            SELECT
+              COALESCE(SUM(CASE WHEN debit > 0 THEN debit ELSE 0 END), 0) as totalDebit,
+              COALESCE(SUM(CASE WHEN credit > 0 THEN credit ELSE 0 END), 0) as totalCredit
+            FROM $custTableName
+          ''');
+
+          if (custResult.isNotEmpty) {
+            custDebit =
+                (custResult.first['totalDebit'] as num?)?.toDouble() ?? 0.0;
+            custCredit =
+                (custResult.first['totalCredit'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
+
+        // Calculate balance using SAME formula as Net Balance:
+        // (General Ledger Credit + Customer Ledger Credit + Opening Balance) - Customer Ledger Debit
+        final totalCredit = generalLedgerCredit + custCredit;
+        final balance = (totalCredit + openingBalance - custDebit).clamp(
+          0,
+          double.infinity,
+        );
+
+        totalReceivables += balance;
       }
 
-      // Return Credit − Debit (Receivables)
-      return totalCredit - totalDebit;
+      return totalReceivables;
     } catch (e) {
       print('Error getting total receivables: $e');
       return 0.0;
     }
+  }
+
+  String _sanitizeTableName(String customerName, int customerId) {
+    final safeName = customerName.replaceAll(RegExp(r'[^A-Za-z0-9_]'), '_');
+    return 'customer_ledger_entries_${safeName}_$customerId';
   }
 
   // 3. Function to get top three inventory items ordered by available stock ASC (lowest stock first)

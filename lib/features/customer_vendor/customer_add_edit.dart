@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/main.dart';
+import 'package:ledger_master/shared/widgets/navigation_files.dart';
 
 import '../../core/models/customer.dart';
 
@@ -58,6 +59,9 @@ class CustomerAddEdit extends StatelessWidget {
         appBarTitle: customer == null
             ? 'Add ${controller.type.value}'
             : 'Edit ${controller.type.value}',
+        onBackButtonPressed: () {
+          NavigationHelper.pushReplacement(context, CustomerList());
+        },
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Form(

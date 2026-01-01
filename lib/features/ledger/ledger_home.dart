@@ -8,8 +8,10 @@ import 'package:ledger_master/core/database/db_helper.dart';
 import 'package:ledger_master/core/models/customer.dart';
 import 'package:ledger_master/core/models/item.dart';
 import 'package:ledger_master/core/models/ledger.dart';
+import 'package:ledger_master/core/repositories/cans_repository.dart';
 import 'package:ledger_master/core/utils/responsive.dart';
 import 'package:ledger_master/features/automation/automation_screen.dart';
+import 'package:ledger_master/features/cans/cans_controller.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/features/inventory/inventory_repository.dart';
@@ -85,6 +87,7 @@ class LedgerHome extends StatelessWidget {
     return Obx(
       () => BaseLayout(
         showBackButton: false,
+        onBackButtonPressed: null,
         appBarTitle: "General Ledger",
         child: Stack(
           children: [
@@ -465,6 +468,7 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
     return Obx(
       () => BaseLayout(
         showBackButton: false,
+        onBackButtonPressed: null,
         appBarTitle: widget.ledger == null
             ? 'Add Ledger Entry'
             : 'Edit Ledger Entry',
@@ -1124,11 +1128,8 @@ class LedgerTablePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<LedgerTableController>();
+    final ledgerController = Get.find<LedgerController>();
     final customerController = Get.find<CustomerController>();
-
-    // Clear old data before loading new ledger entries
-    controller.filteredLedgerEntries.clear();
-    controller.isLoading.value = true;
 
     // Compute net balance locally to avoid side effects in getter (sort + refresh during build)
     // ignore: unused_local_variable
@@ -1154,11 +1155,21 @@ class LedgerTablePage extends StatelessWidget {
           });
         }
       });
+
+      // Clear old data before loading new ledger entries
+      controller.filteredLedgerEntries.clear();
+      controller.isLoading.value = true;
+
+      await controller.loadLedgerEntries(ledger.ledgerNo);
+      await ledgerController.fetchLedgerEntries(ledger.ledgerNo);
     });
 
     return BaseLayout(
       showBackButton: true,
       appBarTitle: "Ledger Entries of: ${ledger.accountName}",
+      onBackButtonPressed: () {
+        NavigationHelper.pushReplacement(context, LedgerHome());
+      },
       child: Obx(() {
         final columnSizer = LedgerColumnSizer(
           entries: controller.filteredLedgerEntries,
@@ -1315,9 +1326,36 @@ class LedgerTablePage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  // Refresh Button
+                  IconButton(
+                    onPressed: () async {
+                      controller.isLoading.value = true;
+                      await controller.loadLedgerEntries(ledger.ledgerNo);
+                      await ledgerController.fetchLedgerEntries(
+                        ledger.ledgerNo,
+                      );
+                      controller.isLoading.value = false;
+                    },
+                    icon: Icon(Icons.refresh),
+                    tooltip: "Refresh Data",
+                  ),
+                  const SizedBox(width: 8),
                   FloatingActionButton(
                     heroTag: 'ledger-fab',
                     onPressed: () async {
+                      // Ensure all data is fresh before opening add entry dialog
+                      controller.isLoading.value = true;
+                      try {
+                        await controller.loadLedgerEntries(ledger.ledgerNo);
+                        await ledgerController.fetchLedgerEntries(
+                          ledger.ledgerNo,
+                        );
+                      } catch (e) {
+                        debugPrint('Error loading entries: $e');
+                      } finally {
+                        controller.isLoading.value = false;
+                      }
+
                       if (context.mounted) {
                         NavigationHelper.push(
                           context,
@@ -1325,8 +1363,27 @@ class LedgerTablePage extends StatelessWidget {
                             ledgerNo: ledger.ledgerNo,
                             accountId: ledger.accountId!.toString(),
                             accountName: ledger.accountName,
-                            onEntrySaved: () =>
-                                controller.loadLedgerEntries(ledger.ledgerNo),
+                            customer: customer,
+                            ledger: ledger,
+                            onEntrySaved: () async {
+                              // Force full refresh after entry is saved
+                              controller.isLoading.value = true;
+                              try {
+                                await Future.delayed(
+                                  const Duration(milliseconds: 500),
+                                );
+                                await controller.loadLedgerEntries(
+                                  ledger.ledgerNo,
+                                );
+                                await ledgerController.fetchLedgerEntries(
+                                  ledger.ledgerNo,
+                                );
+                              } catch (e) {
+                                debugPrint('Error refreshing after save: $e');
+                              } finally {
+                                controller.isLoading.value = false;
+                              }
+                            },
                           ),
                         );
                       }
@@ -1353,6 +1410,7 @@ class LedgerTablePage extends StatelessWidget {
                         onPrint: (entry, index) => printEntry(entry, index),
                         onDelete: (entry) =>
                             deleteEntry(controller, entry, context),
+                        netBalance: controller.netBalance,
                         onEdit: (entry) =>
                             editEntry(controller, entry, context),
                       ),
@@ -1517,54 +1575,62 @@ class LedgerTablePage extends StatelessWidget {
                         }
 
                         final summary = snapshot.data!;
-                        debugPrint(
-                          '[Summary] credit=${summary.credit}, '
-                          'debit=${summary.debit}',
-                        );
 
-                        debugPrint(
-                          '[NetBalanceCalc] credit=${summary.credit}, '
-                          'opening=${snapshott.data}, '
-                          'debit=${summary.debit}',
-                        );
+                        // Fetch customer ledger debit separately for net balance
+                        return FutureBuilder<DebitCreditSummary>(
+                          future: CustomerLedgerRepository()
+                              .fetchTotalDebitAndCredit(
+                                customer.name,
+                                customer.id!,
+                              ),
+                          builder: (context, customerLedgerSnapshot) {
+                            final customerLedgerDebit =
+                                customerLedgerSnapshot.hasData
+                                ? double.tryParse(
+                                        customerLedgerSnapshot.data!.debit,
+                                      ) ??
+                                      0.0
+                                : 0.0;
 
-                        return Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (snapshott.connectionState ==
-                                ConnectionState.waiting)
-                              const SizedBox(height: 20, width: 20)
-                            else
-                              snapshott.data != 0 || snapshott.data != 0.0
-                                  ? totalBox(
-                                      "Opening Bal",
-                                      snapshott.data!,
-                                      context,
-                                    )
-                                  : SizedBox.shrink(),
-                            const SizedBox(width: 16),
-                            totalBox(
-                              "Credit",
-                              double.parse(summary.credit),
-                              context,
-                            ),
-                            const SizedBox(width: 16),
-                            totalBox(
-                              "Debit",
-                              double.parse(summary.debit),
-                              context,
-                            ),
-                            const SizedBox(width: 16),
-                            totalBox(
-                              "Net Balance",
-                              ((double.parse(summary.credit) +
-                                          (snapshott.data ?? 0)) -
-                                      double.parse(summary.debit))
-                                  .clamp(0, double.infinity),
-                              context,
-                            ),
-                          ],
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (snapshott.connectionState ==
+                                    ConnectionState.waiting)
+                                  const SizedBox(height: 20, width: 20)
+                                else
+                                  snapshott.data != 0 || snapshott.data != 0.0
+                                      ? totalBox(
+                                          "Opening Bal",
+                                          snapshott.data!,
+                                          context,
+                                        )
+                                      : SizedBox.shrink(),
+                                const SizedBox(width: 16),
+                                totalBox(
+                                  "Credit",
+                                  double.parse(summary.credit),
+                                  context,
+                                ),
+                                const SizedBox(width: 16),
+                                totalBox(
+                                  "Debit",
+                                  double.parse(summary.debit),
+                                  context,
+                                ),
+                                const SizedBox(width: 16),
+                                totalBox(
+                                  "Net Balance",
+                                  ((double.parse(summary.credit) +
+                                              (snapshott.data ?? 0)) -
+                                          customerLedgerDebit)
+                                      .clamp(0, double.infinity),
+                                  context,
+                                ),
+                              ],
+                            );
+                          },
                         );
                       },
                     );
@@ -1592,6 +1658,7 @@ class LedgerTablePage extends StatelessWidget {
     final ledgerTableController = Get.find<LedgerTableController>();
     final ledgerController = ledgerTableController.ledgerController;
     final customerController = Get.find<CustomerController>();
+    final cansController = Get.find<CansController>();
     final allEntries = ledgerController.ledgerEntries;
     final voucherNo = entry.voucherNo;
     final voucherEntries = allEntries
@@ -1612,29 +1679,20 @@ class LedgerTablePage extends StatelessWidget {
     var customer = await customerController.repo.getCustomer(
       ledger.accountId!.toString(),
     );
-    // Compute running previous balance by date (using all entries for accuracy)
-    final thisDate = entry.date;
-    double runningPrevBalance = 0.0; // for cans
-    for (final prevEntry in allEntries) {
-      if (prevEntry.date.isBefore(thisDate)) {
-        final prevCans = safeParseDouble(prevEntry.cansQuantity);
-        final prevReceived = safeParseDouble(prevEntry.receivedCans);
-        runningPrevBalance += prevCans - prevReceived;
-      }
-    }
-    // Current sums for cans
-    final currentCans = voucherEntries.fold(
-      0.0,
-      (sum, e) => sum + safeParseDouble(e.cansQuantity),
-    );
-    final receivedCans = voucherEntries.fold(
-      0.0,
-      (sum, e) => sum + safeParseDouble(e.receivedCans),
-    );
-    final totalCans = runningPrevBalance + currentCans;
-    final newBalanceCans = totalCans - receivedCans;
+
+    // Fetch cans data from the cans table for this specific customer
+    final cansRecord = cansController.getCansForCustomer(entry.accountId ?? 0);
+
+    // Use cans data from the cans table (last entry for this customer)
+    final displayPreviousCans = cansRecord?.openingBalanceCans ?? 0.0;
+    final displayCurrentCans = cansRecord?.currentCans ?? 0.0;
+    final displayTotalCans = cansRecord?.totalCans ?? 0.0;
+    final displayReceivedCans = cansRecord?.receivedCans ?? 0.0;
+    final displayBalanceCans = cansRecord?.totalCans ?? 0.0;
+
     // Compute previous monetary amount based on date (using all entries)
     double previousAmount = ledgerTableController.openingBalance;
+    final thisDate = entry.date;
     for (final prevEntry in allEntries) {
       if (prevEntry.date.isBefore(thisDate)) {
         final debitAmt = safeParseDouble(prevEntry.debit);
@@ -1660,13 +1718,7 @@ class LedgerTablePage extends StatelessWidget {
     final displayPreviousAmount = previousAmount < 0 ? 0.0 : previousAmount;
     final displayCurrentAmount = currentAmount < 0 ? 0.0 : currentAmount;
     final displayNetBalance = netBalance < 0 ? 0.0 : netBalance;
-    final displayPreviousCans = runningPrevBalance < 0
-        ? 0.0
-        : runningPrevBalance;
-    final displayCurrentCans = currentCans < 0 ? 0.0 : currentCans;
-    final displayTotalCans = totalCans < 0 ? 0.0 : totalCans;
-    final displayReceivedCans = receivedCans < 0 ? 0.0 : receivedCans;
-    final displayBalanceCans = newBalanceCans < 0 ? 0.0 : newBalanceCans;
+
     final data = ReceiptData(
       companyName: 'NAZ ENTERPRISES',
       date: DateFormat('dd/MM/yyyy').format(entry.date),
@@ -1674,11 +1726,11 @@ class LedgerTablePage extends StatelessWidget {
       customerAddress: customer?.address ?? '',
       vehicleNumber: entry.referenceNo ?? 'N/A',
       items: items,
-      previousCans: displayPreviousCans,
-      currentCans: displayCurrentCans,
-      totalCans: displayTotalCans,
-      receivedCans: displayReceivedCans,
-      balanceCans: displayBalanceCans,
+      previousCans: displayPreviousCans < 0 ? 0.0 : displayPreviousCans,
+      currentCans: displayCurrentCans < 0 ? 0.0 : displayCurrentCans,
+      totalCans: displayTotalCans < 0 ? 0.0 : displayTotalCans,
+      receivedCans: displayReceivedCans < 0 ? 0.0 : displayReceivedCans,
+      balanceCans: displayBalanceCans < 0 ? 0.0 : displayBalanceCans,
       currentAmount: displayCurrentAmount,
       previousAmount: displayPreviousAmount,
       netBalance: displayNetBalance,
@@ -1717,6 +1769,8 @@ class LedgerTablePage extends StatelessWidget {
         context,
         LedgerEntryAddEdit(
           entry: entry,
+          customer: customer,
+          ledger: ledger,
           ledgerNo: entry.ledgerNo,
           accountId: entry.accountId!.toString(),
           accountName: entry.accountName,
@@ -1758,14 +1812,30 @@ class LedgerEntryDataSource extends DataGridSource {
   final Function(LedgerEntry, int) onPrint;
   final Function(LedgerEntry) onDelete;
   final Function(LedgerEntry) onEdit;
+  final double netBalance;
+
+  // Store the original entries to reference them later
+  final List<LedgerEntry> _originalEntries;
+
   LedgerEntryDataSource(
     List<LedgerEntry> entries,
     this.context, {
     required this.onPrint,
     required this.onDelete,
     required this.onEdit,
-  }) {
-    _rows = entries.map((entry) {
+    required this.netBalance,
+  }) : _originalEntries = entries {
+    // Calculate running balance for credit amounts
+    double runningBalance = 0;
+
+    _rows = entries.asMap().entries.map((entryWithIndex) {
+      final entry = entryWithIndex.value;
+      final index = entryWithIndex.key;
+
+      // Calculate running balance for credit amounts
+      runningBalance += entry.credit;
+      final balanceValue = runningBalance;
+
       return DataGridRow(
         cells: [
           DataGridCell(columnName: 'voucherNo', value: entry.voucherNo),
@@ -1796,154 +1866,189 @@ class LedgerEntryDataSource extends DataGridSource {
           DataGridCell(columnName: 'createdBy', value: entry.createdBy ?? ''),
           DataGridCell(columnName: 'debit', value: entry.debit),
           DataGridCell(columnName: 'credit', value: entry.credit),
-          DataGridCell(columnName: 'balance', value: entry),
+          DataGridCell(columnName: 'balance', value: balanceValue),
+          // Store the index or a reference to identify which entry this row represents
+          DataGridCell(columnName: '_entryIndex', value: index),
         ],
       );
     }).toList();
   }
+
   @override
   List<DataGridRow> get rows => _rows;
+
   @override
   DataGridRowAdapter buildRow(DataGridRow row) {
-    final entry = (row.getCells().last.value as LedgerEntry);
+    // Find the index of the entry from the hidden cell
+    final indexCell = row.getCells().firstWhere(
+      (cell) => cell.columnName == '_entryIndex',
+      orElse: () => DataGridCell(columnName: '_entryIndex', value: -1),
+    );
+
+    final entryIndex = indexCell.value as int;
+    final entry = _originalEntries[entryIndex];
+
+    // Calculate the display row index (reversed order if needed)
+    final rowIndex = _rows.length - 1 - _rows.indexOf(row);
+
     bool isHovered = false;
+
     return DataGridRowAdapter(
-      cells: row.getCells().asMap().entries.map((cellEntry) {
-        final cell = cellEntry.value;
-        final isLastCell = cellEntry.key == row.getCells().length - 1;
-        final rowIndex = _rows.length - 1 - _rows.indexOf(row);
-        if (isLastCell) {
-          return StatefulBuilder(
-            builder: (context, setState) {
-              return MouseRegion(
-                onEnter: (_) => setState(() => isHovered = true),
-                onExit: (_) => setState(() => isHovered = false),
-                child: Stack(
-                  alignment: Alignment.centerRight,
-                  children: [
-                    Container(
-                      alignment: Alignment.center,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                        child: Text(
-                          NumberFormat(
-                            '#,##0',
-                            'en_US',
-                          ).format(cell.value.balance ?? 0),
-                          style: Theme.of(context).textTheme.bodyMedium!
-                              .copyWith(
-                                fontWeight: FontWeight.w500,
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
-                          textAlign: TextAlign.center,
+      cells: row
+          .getCells()
+          .where((cell) => cell.columnName != '_entryIndex')
+          .map((cell) {
+            final isLastCell =
+                cell.columnName ==
+                'balance'; // Now balance is the last visible cell
+
+            if (isLastCell) {
+              return StatefulBuilder(
+                builder: (context, setState) {
+                  return MouseRegion(
+                    onEnter: (_) => setState(() => isHovered = true),
+                    onExit: (_) => setState(() => isHovered = false),
+                    child: Stack(
+                      alignment: Alignment.centerRight,
+                      children: [
+                        Container(
+                          alignment: Alignment.center,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4.0,
+                            ),
+                            child: Text(
+                              NumberFormat(
+                                '#,##0',
+                                'en_US',
+                              ).format(cell.value ?? 0),
+                              style: Theme.of(context).textTheme.bodyMedium!
+                                  .copyWith(
+                                    fontWeight: FontWeight.w500,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurface,
+                                  ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    if (isHovered)
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surface.withValues(alpha: 0.95),
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: [
-                            BoxShadow(
+                        if (isHovered)
+                          Container(
+                            decoration: BoxDecoration(
                               color: Theme.of(
                                 context,
-                              ).colorScheme.shadow.withValues(alpha: 0.1),
-                              blurRadius: 4,
-                              offset: Offset(0, 2),
+                              ).colorScheme.surface.withValues(alpha: 0.95),
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.shadow.withValues(alpha: 0.1),
+                                  blurRadius: 4,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 4,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Tooltip(
-                              message: "print",
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(14),
-                                onTap: () => onPrint(entry, rowIndex),
-                                child: Padding(
-                                  padding: const EdgeInsets.only(right: 4.0),
-                                  child: Icon(
-                                    Icons.print_outlined,
-                                    size: 16,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Tooltip(
+                                  message: "print",
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(14),
+                                    onTap: () => onPrint(entry, rowIndex),
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(
+                                        right: 4.0,
+                                      ),
+                                      child: Icon(
+                                        Icons.print_outlined,
+                                        size: 16,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                            Tooltip(
-                              message: "delete",
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(14),
-                                onTap: () => confirmDeleteDialog(
-                                  onConfirm: () => onDelete(entry),
-                                  context: context,
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.only(right: 4.0),
-                                  child: Icon(
-                                    Icons.delete_outline,
-                                    size: 16,
-                                    color: Theme.of(context).colorScheme.error,
+                                Tooltip(
+                                  message: "delete",
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(14),
+                                    onTap: () => confirmDeleteDialog(
+                                      onConfirm: () => onDelete(entry),
+                                      context: context,
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(
+                                        right: 4.0,
+                                      ),
+                                      child: Icon(
+                                        Icons.delete_outline,
+                                        size: 16,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.error,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                            Tooltip(
-                              message: "edit",
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(14),
-                                onTap: () => onEdit(entry),
-                                child: Padding(
-                                  padding: const EdgeInsets.only(right: 4.0),
-                                  child: Icon(
-                                    Icons.edit_outlined,
-                                    size: 16,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
+                                Tooltip(
+                                  message: "edit",
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(14),
+                                    onTap: () => onEdit(entry),
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(
+                                        right: 4.0,
+                                      ),
+                                      child: Icon(
+                                        Icons.edit_outlined,
+                                        size: 16,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
               );
-            },
-          );
-        }
-        return Container(
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6.0),
-            child: Text(
-              cell.columnName == 'debit' || cell.columnName == 'credit'
-                  ? NumberFormat('#,##0', 'en_US').format(cell.value ?? 0)
-                  : cell.value.toString(),
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-                fontWeight:
-                    cell.columnName == 'debit' || cell.columnName == 'credit'
-                    ? FontWeight.w500
-                    : FontWeight.w400,
-                color: Theme.of(context).colorScheme.onSurface,
+            }
+
+            return Container(
+              alignment: Alignment.center,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                child: Text(
+                  cell.columnName == 'debit' || cell.columnName == 'credit'
+                      ? NumberFormat('#,##0', 'en_US').format(cell.value ?? 0)
+                      : cell.value.toString(),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium!.copyWith(
+                    fontWeight:
+                        cell.columnName == 'debit' ||
+                            cell.columnName == 'credit'
+                        ? FontWeight.w500
+                        : FontWeight.w400,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
               ),
-            ),
-          ),
-        );
-      }).toList(),
+            );
+          })
+          .toList(),
     );
   }
 }
@@ -1969,6 +2074,12 @@ class LedgerTableController extends GetxController {
   final CustomerRepository repo = CustomerRepository();
   var openingBalance = 0.0; // 👈 cache value for sync access
   Customer? customer;
+
+  // Add reactive totals to trigger UI updates
+  final RxDouble rxTotalDebit = 0.0.obs;
+  final RxDouble rxTotalCredit = 0.0.obs;
+  final RxDouble rxNetBalance = 0.0.obs;
+
   // optional helper to set a default width only if not already set
   void ensureColumnWidth(String columnName, double width) {
     if (!columnWidths.containsKey(columnName)) {
@@ -1987,12 +2098,28 @@ class LedgerTableController extends GetxController {
     fromDateController.text = DateFormat('dd-MM-yyyy').format(thirtyDaysAgo);
     toDateController.text = DateFormat('dd-MM-yyyy').format(now);
     // React to changes in filter criteria
-    ever(searchQuery, (_) => _applyFilters());
-    ever(fromDate, (_) => _applyFilters());
-    ever(toDate, (_) => _applyFilters());
-    ever(selectedTransactionType, (_) => _applyFilters());
+    ever(searchQuery, (_) {
+      _applyFilters();
+      _updateReactiveTotals();
+    });
+    ever(fromDate, (_) {
+      _applyFilters();
+      _updateReactiveTotals();
+    });
+    ever(toDate, (_) {
+      _applyFilters();
+      _updateReactiveTotals();
+    });
+    ever(selectedTransactionType, (_) {
+      _applyFilters();
+      _updateReactiveTotals();
+    });
+    ever(filteredLedgerEntries, (_) {
+      _updateReactiveTotals();
+    });
     // Apply initial filters
     _applyFilters();
+    _updateReactiveTotals();
   }
 
   Future<void> getcustomer(String accountName) async {
@@ -2063,12 +2190,35 @@ class LedgerTableController extends GetxController {
     super.onClose();
   }
 
+  void _updateReactiveTotals() {
+    rxTotalDebit.value = totalDebit;
+    rxTotalCredit.value = totalCredit;
+    rxNetBalance.value = netBalance;
+  }
+
   Future<void> loadLedgerEntries(String ledgerNo) async {
     isLoading.value = true;
-    await ledgerController.fetchLedgerEntries(ledgerNo); // REMOVE THE DELAY
-    // Calculate running balance after fetching entries (full chronological)
-    calculateRunningBalance(ledgerNo);
-    isLoading.value = false;
+    try {
+      // Clear old data first to force fresh load
+      filteredLedgerEntries.clear();
+      ledgerController.ledgerEntries.clear();
+
+      // Fetch fresh data from database
+      await ledgerController.fetchLedgerEntries(ledgerNo);
+
+      // Reapply filters to update filteredLedgerEntries with new data
+      _applyFilters();
+
+      // Update reactive totals to trigger UI rebuild
+      _updateReactiveTotals();
+
+      // Calculate running balance after fetching entries
+      calculateRunningBalance(ledgerNo);
+    } catch (e) {
+      debugPrint('Error loading ledger entries: $e');
+    } finally {
+      isLoading.value = false;
+    }
   }
 
   void calculateRunningBalance(String ledgerNo) {
@@ -2200,15 +2350,20 @@ class LedgerTableController extends GetxController {
   }
 
   double get balanceCans {
-    // Sum cansQuantity of all filtered entries safely
-    return filteredLedgerEntries.fold<double>(
-      0.0,
-      (sum, entry) =>
-          (sum +
-                  (entry.cansQuantity ?? 0) -
-                  double.tryParse(entry.receivedCans!)!)
-              .toDouble(),
+    // Fetch cans data from the cans table for this customer
+    final cansController = Get.find<CansController>();
+    final ledger = ledgerController.ledgers.isNotEmpty
+        ? ledgerController.ledgers.first
+        : null;
+    if (ledger == null) return 0.0;
+
+    final cansRecord = cansController.getCansForCustomer(
+      int.tryParse(ledger.accountId.toString()) ?? 0,
     );
+
+    // Return the balance from the cans table for this customer
+    // If no cans record exists, return 0
+    return cansRecord?.totalCans ?? 0.0;
   }
 
   void analyzeCalculations() {
@@ -2249,7 +2404,9 @@ class LedgerTableController extends GetxController {
 class LedgerController extends GetxController {
   final LedgerRepository repo;
   final InventoryRepository inventoryRepo = InventoryRepository();
-  final automationController = Get.put(AutomationController());
+  final automationController = Get.put(AutomationController(), permanent: true);
+  final CansRepository cansrepo = CansRepository();
+  late final CansController cansController;
   final ledgers = <Ledger>[].obs;
   final filteredLedgers = <Ledger>[].obs;
   final ledgerEntries = <LedgerEntry>[].obs;
@@ -2345,6 +2502,7 @@ class LedgerController extends GetxController {
     creditController.addListener(_onAmountOrAccountChanged);
     debitController.addListener(_onAmountOrAccountChanged);
     accountIdController.addListener(_onAmountOrAccountChanged);
+    cansController = Get.put(CansController(cansrepo), permanent: true);
   }
 
   // Add this method to clear cheque fields when switching to cash
@@ -2390,8 +2548,24 @@ class LedgerController extends GetxController {
     newForm.selectedDate.value = DateTime.now();
     newForm.originalEntry = null;
     newForm.currentStep.value = 0;
-    newForm.selectedItem.value = null;
     newForm.paymentMethod.value = 'cash'; // Default to cash
+
+    // Fetch all cans data first, then populate cans quantity from cans table for this customer
+    await cansController.fetchCans();
+    final accountId = parentLedger.accountId ?? 0;
+    var cansRecord = cansController.getCansForCustomer(accountId);
+
+    // Fallback: try by account name if accountId didn't work
+    cansRecord ??= cansController.getCansForCustomerByName(
+      parentLedger.accountName,
+    );
+
+    if (cansRecord != null) {
+      newForm.cansQuantityController.text = cansRecord.currentCans
+          .toStringAsFixed(2);
+    }
+
+    newForm.selectedItem.value = null;
     if (_sharedVoucherNo == null) {
       String voucherNo;
       if (_nextVoucherNums.containsKey(ledgerNo)) {
@@ -2788,6 +2962,18 @@ class LedgerController extends GetxController {
     newForm.selectedDate.value = DateTime.now();
     newForm.currentStep.value = 0;
     newForm.paymentMethod.value = 'cash'; // Default to cash
+
+    // Fetch cans data from the cans table for this customer
+    final accountId = parentLedger.accountId;
+    final cansRecord = accountId != null
+        ? cansController.getCansForCustomer(accountId)
+        : null;
+    if (cansRecord != null) {
+      newForm.balanceCans.text = cansRecord.totalCans.toStringAsFixed(2);
+    } else {
+      newForm.balanceCans.text = '0.00';
+    }
+
     if (entry != null) {
       newForm.originalEntry = entry;
       newForm.voucherNoController.text = entry.voucherNo;
@@ -2861,22 +3047,21 @@ class LedgerController extends GetxController {
       }
       newForm.voucherNoController.text = voucherNo;
       _sharedVoucherNo = voucherNo;
-      newForm.selectedItem.value = null;
+      await newForm._initPreviousBalance();
+      entryForms.add(newForm);
+      newForm.creditController.addListener(
+        () => _handleInputSign(
+          newForm.creditController,
+          newForm.transactionType.value == "Debit",
+        ),
+      );
+      newForm.debitController.addListener(
+        () => _handleInputSign(
+          newForm.debitController,
+          newForm.transactionType.value == "Credit",
+        ),
+      );
     }
-    await newForm._initPreviousBalance();
-    entryForms.add(newForm);
-    newForm.creditController.addListener(
-      () => _handleInputSign(
-        newForm.creditController,
-        newForm.transactionType.value == "Debit",
-      ),
-    );
-    newForm.debitController.addListener(
-      () => _handleInputSign(
-        newForm.debitController,
-        newForm.transactionType.value == "Credit",
-      ),
-    );
   }
 
   Future<void> saveLedger(BuildContext context, {Ledger? ledger}) async {
@@ -3062,14 +3247,7 @@ class LedgerController extends GetxController {
           sellingPricePerCan: double.tryParse(
             formData.sellingPriceController.text,
           ),
-          balanceCans:
-              ((double.tryParse(formData.balanceCans.text) ??
-                          0.0 +
-                              double.tryParse(
-                                formData.cansQuantityController.text,
-                              )!) -
-                      (double.tryParse(formData.receivedCans.text) ?? 0.0))
-                  .toString(),
+          balanceCans: formData.balanceCans.text.toString(),
           receivedCans: formData.receivedCans.text.toString(),
           // ✅ FIXED: Cheque fields - only populate if payment method is cheque
           paymentMethod: formData.paymentMethod.value,
@@ -3486,11 +3664,15 @@ class LedgerEntryAddEdit extends StatelessWidget {
   final String accountId;
   final String accountName;
   final LedgerEntry? entry;
+  final Ledger ledger;
+  final Customer customer;
   final VoidCallback? onEntrySaved;
 
   const LedgerEntryAddEdit({
     super.key,
     required this.ledgerNo,
+    required this.ledger,
+    required this.customer,
     this.entry,
     required this.accountId,
     required this.accountName,
@@ -3515,6 +3697,12 @@ class LedgerEntryAddEdit extends StatelessWidget {
     return Obx(
       () => BaseLayout(
         showBackButton: true,
+        onBackButtonPressed: () {
+          NavigationHelper.pushReplacement(
+            context,
+            LedgerTablePage(ledger: ledger, customer: customer),
+          );
+        },
         appBarTitle: entry == null ? 'Add Ledger Entry' : 'Edit Ledger Entry',
         child: SingleChildScrollView(
           controller: scrollController,
@@ -3994,10 +4182,17 @@ class LedgerEntryAddEdit extends StatelessWidget {
     // Get the date of the first entry in this voucher
     final voucherDate = entriesWithSameVoucher.first.date;
 
-    // Calculate previous balance (before this voucher)
-    double previousAmount = ledgerTableController.openingBalance;
-    double previousCans = 0.0;
+    // NEW: Get cans data using the same function that works correctly
+    final cansController = Get.find<CansController>();
+    final cansSummary = await cansController.getCansBalanceSummary(
+      int.parse(accountId),
+    );
 
+    // Use the values from getCansBalanceSummary
+    double previousCans = cansSummary['previous'] ?? 0.0;
+    double previousAmount = ledgerTableController.openingBalance;
+
+    // Calculate previous amount using the same logic as balance calculation
     for (var entry in ledgerTableController.filteredLedgerEntries) {
       // Skip entries with the same voucher number
       if (entry.voucherNo == voucherNo) continue;
@@ -4006,17 +4201,13 @@ class LedgerEntryAddEdit extends StatelessWidget {
       if (entry.date.isBefore(voucherDate)) {
         final debitAmt = safeParseDouble(entry.debit);
         final creditAmt = safeParseDouble(entry.credit);
+
         // ✅ FIXED: Balance = previous + credit - debit
         previousAmount += creditAmt - debitAmt;
-
-        // Calculate previous cans
-        final entryCans = safeParseDouble(entry.cansQuantity ?? '0');
-        final entryReceived = safeParseDouble(entry.receivedCans ?? '0');
-        previousCans += entryCans - entryReceived;
       }
     }
 
-    // Calculate totals
+    // Calculate totals using the correct previous cans
     final totalCans = previousCans + currentCans;
     final balanceCans = totalCans - receivedCans;
 
@@ -4189,1167 +4380,1325 @@ class LedgerEntryAddEdit extends StatelessWidget {
   ) {
     final formData = controller.entryForms[index];
 
-    if (stepNum == 1) {
-      if (isDesktop) {
-        return Column(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.ledgerNoController,
-                    focusNode: formData.ledgerNoFocusNode,
-                    label: 'Ledger No',
-                    readOnly: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Ledger No is required'
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.voucherNoController,
-                    focusNode: formData.voucherNoFocusNode,
-                    label: 'Voucher No',
-                    readOnly: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Voucher No is required'
-                        : null,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.accountNameController,
-                    focusNode: formData.accountNameFocusNode,
-                    label: 'Account Name',
-                    readOnly: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Account Name is required'
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.accountIdController,
-                    focusNode: formData.accountIdFocusNode,
-                    label: 'Account ID',
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    readOnly: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Account ID is required'
-                        : null,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: formData.transactionType.value.isNotEmpty
-                        ? formData.transactionType.value
-                        : null,
-                    focusNode: formData.transactionTypeFocusNode,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    decoration: InputDecoration(
-                      labelText: 'Transaction Type',
-                      labelStyle: Theme.of(context).textTheme.bodySmall!
-                          .copyWith(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.8),
-                          ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    items: const ['Debit', 'Credit']
-                        .map(
-                          (t) => DropdownMenuItem<String>(
-                            value: t,
-                            child: Text(t),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      formData.transactionType.value = value!;
-                      formData.transactionTypeController.text = value;
-                      formData.status.value = value;
-                      formData.statusController.text = value;
-                      formData._updateBalance();
-                    },
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Transaction Type is required'
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: InkWell(
-                    focusNode: formData.dateFocusNode,
-                    onTap: () => controller.selectDateForForm(context, index),
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        labelText: 'Date',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        labelStyle: Theme.of(context).textTheme.bodySmall!
-                            .copyWith(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withValues(alpha: 0.8),
-                            ),
-                      ),
-                      child: Text(
-                        DateFormat(
-                          'dd-MM-yyyy',
-                        ).format(formData.selectedDate.value),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+    return FutureBuilder<Map<String, dynamic>>(
+      future: controller.cansController.getCansBalanceSummary(
+        int.parse(accountId),
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(child: CircularProgressIndicator());
+        }
 
-            // Payment Method Dropdown
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: formData.paymentMethod.value,
-                    focusNode: formData.paymentMethodFocusNode,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    decoration: InputDecoration(
-                      labelText: 'Payment Type',
-                      labelStyle: Theme.of(context).textTheme.bodySmall!
-                          .copyWith(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.8),
-                          ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    items: const ['cash', 'cheque']
-                        .map(
-                          (t) => DropdownMenuItem<String>(
-                            value: t,
-                            child: Text(t == 'cash' ? 'Cash' : 'Cheque'),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      formData.paymentMethod.value = value!;
-                    },
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Transaction Type is required'
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(child: Container()), // Empty container for layout
-              ],
-            ),
+        if (snapshot.hasError) {
+          return Text('Error loading cans data');
+        }
 
-            // Cheque Fields (conditionally shown)
-            if (formData.paymentMethod.value == 'cheque') ...[
-              const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _buildTextField(
-                      context: context,
-                      controller: formData.chequeNoController,
-                      focusNode: formData.chequeNoFocusNode,
-                      label: 'Cheque No',
-                      validator: (value) => value == null || value.isEmpty
-                          ? 'Cheque No is required for cheque transactions'
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildTextField(
-                      context: context,
-                      controller: formData.chequeAmountController,
-                      focusNode: formData.chequeAmountFocusNode,
-                      label: 'Cheque Amount',
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
+        final cansData =
+            snapshot.data ??
+            {
+              'final_balance': '0.0',
+              'total_current': '0.0',
+              'total_received': '0.0',
+            };
+
+        // Parse the string values to doubles
+        final totalCurrent =
+            double.tryParse(cansData['current'].toString()) ?? 0.0;
+        final finalBalance =
+            double.tryParse(cansData['balance'].toString()) ?? 0.0;
+        final totalReceived =
+            double.tryParse(cansData['received'].toString()) ?? 0.0;
+        final previousCans =
+            double.tryParse(cansData['previous'].toString()) ?? 0.0;
+
+        // Update the form fields
+        formData.cansQuantityController.text = totalCurrent.toStringAsFixed(0);
+        formData.balanceCans.text = finalBalance.toStringAsFixed(0);
+        formData.receivedCans.text = totalReceived.toStringAsFixed(0);
+        formData.previousCans.text = previousCans.toStringAsFixed(0);
+
+        if (stepNum == 1) {
+          if (isDesktop) {
+            return Column(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.ledgerNoController,
+                        focusNode: formData.ledgerNoFocusNode,
+                        label: 'Ledger No',
+                        readOnly: true,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Ledger No is required'
+                            : null,
                       ),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'^\d*\.?\d*'),
-                        ),
-                      ],
-                      validator: (value) => value == null || value.isEmpty
-                          ? 'Cheque Amount is required for cheque transactions'
-                          : null,
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      focusNode: formData.chequeDateFocusNode,
-                      onTap: () =>
-                          controller.selectChequeDateForForm(context, index),
-                      child: InputDecorator(
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.voucherNoController,
+                        focusNode: formData.voucherNoFocusNode,
+                        label: 'Voucher No',
+                        readOnly: true,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Voucher No is required'
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.accountNameController,
+                        focusNode: formData.accountNameFocusNode,
+                        label: 'Account Name',
+                        readOnly: true,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Account Name is required'
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.accountIdController,
+                        focusNode: formData.accountIdFocusNode,
+                        label: 'Account ID',
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        readOnly: true,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Account ID is required'
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: formData.transactionType.value.isNotEmpty
+                            ? formData.transactionType.value
+                            : null,
+                        focusNode: formData.transactionTypeFocusNode,
+                        style: Theme.of(context).textTheme.bodySmall,
                         decoration: InputDecoration(
-                          labelText: 'Cheque Date',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                          labelText: 'Transaction Type',
                           labelStyle: Theme.of(context).textTheme.bodySmall!
                               .copyWith(
                                 color: Theme.of(
                                   context,
                                 ).colorScheme.onSurface.withValues(alpha: 0.8),
                               ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
-                        child: Text(
-                          formData.chequeDate.value != null
-                              ? DateFormat(
-                                  'dd-MM-yyyy',
-                                ).format(formData.chequeDate.value!)
-                              : 'Select Cheque Date',
+                        items: const ['Debit', 'Credit']
+                            .map(
+                              (t) => DropdownMenuItem<String>(
+                                value: t,
+                                child: Text(t),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          formData.transactionType.value = value!;
+                          formData.transactionTypeController.text = value;
+                          formData.status.value = value;
+                          formData.statusController.text = value;
+                          formData._updateBalance();
+                        },
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Transaction Type is required'
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: InkWell(
+                        focusNode: formData.dateFocusNode,
+                        onTap: () =>
+                            controller.selectDateForForm(context, index),
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            labelText: 'Date',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            labelStyle: Theme.of(context).textTheme.bodySmall!
+                                .copyWith(
+                                  color: Theme.of(context).colorScheme.onSurface
+                                      .withValues(alpha: 0.8),
+                                ),
+                          ),
+                          child: Text(
+                            DateFormat(
+                              'dd-MM-yyyy',
+                            ).format(formData.selectedDate.value),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: formData.bankNameController.text.isNotEmpty
-                          ? formData.bankNameController.text
-                          : null,
-                      focusNode: formData.bankNameFocusNode,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      decoration: InputDecoration(
-                        labelText: 'Bank Name',
-                        labelStyle: Theme.of(context).textTheme.bodySmall!
-                            .copyWith(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withValues(alpha: 0.8),
-                            ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Payment Method Dropdown
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: formData.paymentMethod.value,
+                        focusNode: formData.paymentMethodFocusNode,
+                        style: Theme.of(context).textTheme.bodySmall,
+                        decoration: InputDecoration(
+                          labelText: 'Payment Type',
+                          labelStyle: Theme.of(context).textTheme.bodySmall!
+                              .copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: 0.8),
+                              ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        items: const ['cash', 'cheque']
+                            .map(
+                              (t) => DropdownMenuItem<String>(
+                                value: t,
+                                child: Text(t == 'cash' ? 'Cash' : 'Cheque'),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          formData.paymentMethod.value = value!;
+                        },
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Transaction Type is required'
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(child: Container()), // Empty container for layout
+                  ],
+                ),
+
+                // Cheque Fields (conditionally shown)
+                if (formData.paymentMethod.value == 'cheque') ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          context: context,
+                          controller: formData.chequeNoController,
+                          focusNode: formData.chequeNoFocusNode,
+                          label: 'Cheque No',
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Cheque No is required for cheque transactions'
+                              : null,
                         ),
                       ),
-                      items: controller.bankList
-                          .map(
-                            (bank) => DropdownMenuItem<String>(
-                              value: bank,
-                              child: Text(bank),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _buildTextField(
+                          context: context,
+                          controller: formData.chequeAmountController,
+                          focusNode: formData.chequeAmountFocusNode,
+                          label: 'Cheque Amount',
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d*\.?\d*'),
                             ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        formData.bankNameController.text = value!;
-                      },
-                      validator: (value) => value == null || value.isEmpty
-                          ? 'Bank Name is required for cheque transactions'
-                          : null,
-                    ),
+                          ],
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Cheque Amount is required for cheque transactions'
+                              : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          focusNode: formData.chequeDateFocusNode,
+                          onTap: () => controller.selectChequeDateForForm(
+                            context,
+                            index,
+                          ),
+                          child: InputDecorator(
+                            decoration: InputDecoration(
+                              labelText: 'Cheque Date',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              labelStyle: Theme.of(context).textTheme.bodySmall!
+                                  .copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.8),
+                                  ),
+                            ),
+                            child: Text(
+                              formData.chequeDate.value != null
+                                  ? DateFormat(
+                                      'dd-MM-yyyy',
+                                    ).format(formData.chequeDate.value!)
+                                  : 'Select Cheque Date',
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue:
+                              formData.bankNameController.text.isNotEmpty
+                              ? formData.bankNameController.text
+                              : null,
+                          focusNode: formData.bankNameFocusNode,
+                          style: Theme.of(context).textTheme.bodySmall,
+                          decoration: InputDecoration(
+                            labelText: 'Bank Name',
+                            labelStyle: Theme.of(context).textTheme.bodySmall!
+                                .copyWith(
+                                  color: Theme.of(context).colorScheme.onSurface
+                                      .withValues(alpha: 0.8),
+                                ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          items: controller.bankList
+                              .map(
+                                (bank) => DropdownMenuItem<String>(
+                                  value: bank,
+                                  child: Text(bank),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            formData.bankNameController.text = value!;
+                          },
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Bank Name is required for cheque transactions'
+                              : null,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
-              ),
-            ],
-          ],
-        );
-      } else {
-        return Column(
-          children: [
-            _buildTextField(
-              context: context,
-              controller: formData.ledgerNoController,
-              focusNode: formData.ledgerNoFocusNode,
-              label: 'Ledger No',
-              readOnly: true,
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Ledger No is required'
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              context: context,
-              controller: formData.voucherNoController,
-              focusNode: formData.voucherNoFocusNode,
-              label: 'Voucher No',
-              readOnly: true,
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Voucher No is required'
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              context: context,
-              controller: formData.accountNameController,
-              focusNode: formData.accountNameFocusNode,
-              label: 'Account Name',
-              readOnly: true,
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Account Name is required'
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              context: context,
-              controller: formData.accountIdController,
-              focusNode: formData.accountIdFocusNode,
-              label: 'Account ID',
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              readOnly: true,
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Account ID is required'
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              initialValue: formData.transactionType.value.isNotEmpty
-                  ? formData.transactionType.value
-                  : null,
-              focusNode: formData.transactionTypeFocusNode,
-              style: Theme.of(context).textTheme.bodySmall,
-              decoration: InputDecoration(
-                labelText: 'Transaction Type',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+              ],
+            );
+          } else {
+            return Column(
+              children: [
+                _buildTextField(
+                  context: context,
+                  controller: formData.ledgerNoController,
+                  focusNode: formData.ledgerNoFocusNode,
+                  label: 'Ledger No',
+                  readOnly: true,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Ledger No is required'
+                      : null,
                 ),
-              ),
-              items: const ['Debit', 'Credit']
-                  .map(
-                    (t) => DropdownMenuItem<String>(value: t, child: Text(t)),
-                  )
-                  .toList(),
-              onChanged: (value) {
-                formData.transactionType.value = value!;
-                formData.transactionTypeController.text = value;
-                formData.status.value = value;
-                formData.statusController.text = value;
-                formData._updateBalance();
-              },
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Transaction Type is required'
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            InkWell(
-              focusNode: formData.dateFocusNode,
-              onTap: () => controller.selectDateForForm(context, index),
-              child: InputDecorator(
-                decoration: InputDecoration(
-                  labelText: 'Date',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  context: context,
+                  controller: formData.voucherNoController,
+                  focusNode: formData.voucherNoFocusNode,
+                  label: 'Voucher No',
+                  readOnly: true,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Voucher No is required'
+                      : null,
                 ),
-                child: Text(
-                  DateFormat('dd-MM-yyyy').format(formData.selectedDate.value),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  context: context,
+                  controller: formData.accountNameController,
+                  focusNode: formData.accountNameFocusNode,
+                  label: 'Account Name',
+                  readOnly: true,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Account Name is required'
+                      : null,
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Payment Method Dropdown (Mobile)
-            DropdownButtonFormField<String>(
-              initialValue: formData.paymentMethod.value,
-              focusNode: formData.paymentMethodFocusNode,
-              style: Theme.of(context).textTheme.bodySmall,
-              decoration: InputDecoration(
-                labelText: 'Payment Type',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  context: context,
+                  controller: formData.accountIdController,
+                  focusNode: formData.accountIdFocusNode,
+                  label: 'Account ID',
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  readOnly: true,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Account ID is required'
+                      : null,
                 ),
-              ),
-              items: const ['cash', 'cheque']
-                  .map(
-                    (t) => DropdownMenuItem<String>(
-                      value: t,
-                      child: Text(t == 'cash' ? 'Cash' : 'Cheque'),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (value) {
-                formData.paymentMethod.value = value!;
-              },
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Transaction Type is required'
-                  : null,
-            ),
-
-            // Cheque Fields (conditionally shown - Mobile)
-            if (formData.paymentMethod.value == 'cheque') ...[
-              const SizedBox(height: 16),
-              _buildTextField(
-                context: context,
-                controller: formData.chequeNoController,
-                focusNode: formData.chequeNoFocusNode,
-                label: 'Cheque No',
-                validator: (value) => value == null || value.isEmpty
-                    ? 'Cheque No is required for cheque transactions'
-                    : null,
-              ),
-              const SizedBox(height: 16),
-              _buildTextField(
-                context: context,
-                controller: formData.chequeAmountController,
-                focusNode: formData.chequeAmountFocusNode,
-                label: 'Cheque Amount',
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-                ],
-                validator: (value) => value == null || value.isEmpty
-                    ? 'Cheque Amount is required for cheque transactions'
-                    : null,
-              ),
-              const SizedBox(height: 16),
-              InkWell(
-                focusNode: formData.chequeDateFocusNode,
-                onTap: () => controller.selectChequeDateForForm(context, index),
-                child: InputDecorator(
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: formData.transactionType.value.isNotEmpty
+                      ? formData.transactionType.value
+                      : null,
+                  focusNode: formData.transactionTypeFocusNode,
+                  style: Theme.of(context).textTheme.bodySmall,
                   decoration: InputDecoration(
-                    labelText: 'Cheque Date',
+                    labelText: 'Transaction Type',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  child: Text(
-                    formData.chequeDate.value != null
-                        ? DateFormat(
-                            'dd-MM-yyyy',
-                          ).format(formData.chequeDate.value!)
-                        : 'Select Cheque Date',
-                  ),
+                  items: const ['Debit', 'Credit']
+                      .map(
+                        (t) =>
+                            DropdownMenuItem<String>(value: t, child: Text(t)),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    formData.transactionType.value = value!;
+                    formData.transactionTypeController.text = value;
+                    formData.status.value = value;
+                    formData.statusController.text = value;
+                    formData._updateBalance();
+                  },
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Transaction Type is required'
+                      : null,
                 ),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: formData.bankNameController.text.isNotEmpty
-                    ? formData.bankNameController.text
-                    : null,
-                focusNode: formData.bankNameFocusNode,
-                style: Theme.of(context).textTheme.bodySmall,
-                decoration: InputDecoration(
-                  labelText: 'Bank Name',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                items: controller.bankList
-                    .map(
-                      (bank) => DropdownMenuItem<String>(
-                        value: bank,
-                        child: Text(bank),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  formData.bankNameController.text = value!;
-                },
-                validator: (value) => value == null || value.isEmpty
-                    ? 'Bank Name is required for cheque transactions'
-                    : null,
-              ),
-            ],
-          ],
-        );
-      }
-    } else if (stepNum == 2) {
-      // ... existing step 2 code remains the same ...
-      if (isDesktop) {
-        return Column(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Obx(() {
-                    Item? selectedItem = formData.selectedItem.value != null
-                        ? controller.availableItems.firstWhereOrNull(
-                            (item) =>
-                                item.id == formData.selectedItem.value!.id,
-                          )
-                        : null;
-                    return DropdownButtonFormField<Item>(
-                      initialValue: selectedItem,
-                      focusNode: formData.itemFocusNode,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      decoration: InputDecoration(
-                        labelText: 'Item',
-                        labelStyle: Theme.of(context).textTheme.bodySmall,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      items: controller.availableItems
-                          .map(
-                            (item) => DropdownMenuItem<Item>(
-                              value: item,
-                              child: Text(
-                                '${item.name} (Stock: ${item.availableStock})',
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (item) {
-                        formData.selectedItem.value = item;
-                        if (item != null) {
-                          formData.itemIdController.text = item.id.toString();
-                          formData.itemNameController.text = item.name;
-                          formData.itemPriceController.text = item.pricePerKg
-                              .toStringAsFixed(2);
-                          formData.canWeightController.text = item.canWeight
-                              .toStringAsFixed(2);
-                          formData.updateDescription();
-                          formData._updateTotalWeight();
-                        }
-                      },
-                      validator: (value) =>
-                          value == null ? 'Item is required' : null,
-                    );
-                  }),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.cansQuantityController,
-                    focusNode: formData.cansQuantityFocusNode,
-                    label: 'Cans Quantity',
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Cans Quantity is required';
-                      }
-                      if (formData.selectedItem.value != null) {
-                        final quantity = int.tryParse(value) ?? 0;
-                        final canWeight =
-                            double.tryParse(
-                              formData.canWeightController.text,
-                            ) ??
-                            0;
-                        final totalWeight = quantity * canWeight;
-                        if (totalWeight >
-                            formData.selectedItem.value!.availableStock) {
-                          return 'Not enough stock. Available: ${formData.selectedItem.value!.availableStock}';
-                        }
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.itemPriceController,
-                    focusNode: formData.itemPriceFocusNode,
-                    label: 'Price per Kg/L',
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-                    ],
-                    readOnly: false,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Price per Kg/L is required'
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.canWeightController,
-                    focusNode: formData.canWeightFocusNode,
-                    label: 'Can Weight (Kg/L)',
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-                    ],
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Can Weight is required'
-                        : null,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.sellingPriceController,
-                    focusNode: formData.sellingPriceFocusNode,
-                    label: 'Selling Price',
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-                    ],
-                    readOnly: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Selling Price is required'
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildTotalWeightField(
-                    controller: formData.totalWeightController,
-                    focusNode: formData.totalWeightFocusNode,
-                    context: context,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.balanceCans,
-                    focusNode: formData.balanceCansFocusNode,
-                    label: 'Balance Cans',
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-                    ],
-                    readOnly: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Balance Cans is required'
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.receivedCans,
-                    focusNode: formData.receivedCansFocusNode,
-                    label: 'Received Cans',
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-                    ],
-                    readOnly: false,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Received Cans is required'
-                        : null,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        );
-      } else {
-        return Column(
-          children: [
-            Obx(() {
-              Item? selectedItem = formData.selectedItem.value != null
-                  ? controller.availableItems.firstWhereOrNull(
-                      (item) => item.id == formData.selectedItem.value!.id,
-                    )
-                  : null;
-              return DropdownButtonFormField<Item>(
-                initialValue: selectedItem,
-                focusNode: formData.itemFocusNode,
-                style: Theme.of(context).textTheme.bodySmall,
-                decoration: InputDecoration(
-                  labelText: 'Item',
-                  labelStyle: Theme.of(context).textTheme.bodySmall,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                items: controller.availableItems
-                    .map(
-                      (item) => DropdownMenuItem<Item>(
-                        value: item,
-                        child: Text(
-                          '${item.name} (Stock: ${item.availableStock})',
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (item) {
-                  formData.selectedItem.value = item;
-                  if (item != null) {
-                    formData.itemIdController.text = item.id.toString();
-                    formData.itemNameController.text = item.name;
-                    formData.itemPriceController.text = item.pricePerKg
-                        .toStringAsFixed(2);
-                    formData.canWeightController.text = item.canWeight
-                        .toStringAsFixed(2);
-                    formData.updateDescription();
-                    formData._updateTotalWeight();
-                  }
-                },
-                validator: (value) => value == null ? 'Item is required' : null,
-              );
-            }),
-            const SizedBox(height: 16),
-            _buildTextField(
-              context: context,
-              controller: formData.cansQuantityController,
-              focusNode: formData.cansQuantityFocusNode,
-              label: 'Cans Quantity',
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Cans Quantity is required';
-                }
-                if (formData.selectedItem.value != null) {
-                  final quantity = int.tryParse(value) ?? 0;
-                  final canWeight =
-                      double.tryParse(formData.canWeightController.text) ?? 0;
-                  final totalWeight = quantity * canWeight;
-                  if (totalWeight >
-                      formData.selectedItem.value!.availableStock) {
-                    return 'Not enough stock. Available: ${formData.selectedItem.value!.availableStock}';
-                  }
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              context: context,
-              controller: formData.itemPriceController,
-              focusNode: formData.itemPriceFocusNode,
-              label: 'Price per Kg/L',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-              ],
-              readOnly: true,
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Price per Kg/L is required'
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              context: context,
-              controller: formData.canWeightController,
-              focusNode: formData.canWeightFocusNode,
-              label: 'Can Weight (Kg/L)',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-              ],
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Can Weight is required'
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              context: context,
-              controller: formData.sellingPriceController,
-              focusNode: formData.sellingPriceFocusNode,
-              label: 'Selling Price',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-              ],
-              readOnly: true,
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Selling Price is required'
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTotalWeightField(
-              controller: formData.totalWeightController,
-              focusNode: formData.totalWeightFocusNode,
-              context: context,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              context: context,
-              controller: formData.balanceCans,
-              focusNode: formData.balanceCansFocusNode,
-              label: 'Balance Cans',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-              ],
-              readOnly: true,
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Balance Cans is required'
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              context: context,
-              controller: formData.receivedCans,
-              focusNode: formData.receivedCansFocusNode,
-              label: 'Received Cans',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-              ],
-              readOnly: false,
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Received Cans is required'
-                  : null,
-            ),
-          ],
-        );
-      }
-    } else {
-      // ... existing step 3 code remains the same ...
-      if (isDesktop) {
-        return Column(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.debitController,
-                    focusNode: formData.debitFocusNode,
-                    label: 'Debit',
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                      signed: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(
-                        RegExp(r'^-?\d*\.?\d*'),
-                      ),
-                    ],
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Debit is required';
-                      }
-                      if (double.tryParse(value) == null) {
-                        return 'Please enter a valid number';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.creditController,
-                    focusNode: formData.creditFocusNode,
-                    label: 'Credit',
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                      signed: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(
-                        RegExp(r'^-?\d*\.?\d*'),
-                      ),
-                    ],
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Credit is required';
-                      }
-                      if (double.tryParse(value) == null) {
-                        return 'Please enter a valid number';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.balanceController,
-                    focusNode: formData.balanceFocusNode,
-                    label: 'Balance',
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-                    ],
-                    readOnly: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Balance is required'
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: formData.status.value.isNotEmpty
-                        ? formData.status.value
-                        : null,
-                    focusNode: formData.statusFocusNode,
-                    style: Theme.of(context).textTheme.bodySmall,
+                const SizedBox(height: 16),
+                InkWell(
+                  focusNode: formData.dateFocusNode,
+                  onTap: () => controller.selectDateForForm(context, index),
+                  child: InputDecorator(
                     decoration: InputDecoration(
-                      labelText: 'Status',
+                      labelText: 'Date',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    items: const ['Debit', 'Credit']
+                    child: Text(
+                      DateFormat(
+                        'dd-MM-yyyy',
+                      ).format(formData.selectedDate.value),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Payment Method Dropdown (Mobile)
+                DropdownButtonFormField<String>(
+                  initialValue: formData.paymentMethod.value,
+                  focusNode: formData.paymentMethodFocusNode,
+                  style: Theme.of(context).textTheme.bodySmall,
+                  decoration: InputDecoration(
+                    labelText: 'Payment Type',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  items: const ['cash', 'cheque']
+                      .map(
+                        (t) => DropdownMenuItem<String>(
+                          value: t,
+                          child: Text(t == 'cash' ? 'Cash' : 'Cheque'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    formData.paymentMethod.value = value!;
+                  },
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Transaction Type is required'
+                      : null,
+                ),
+
+                // Cheque Fields (conditionally shown - Mobile)
+                if (formData.paymentMethod.value == 'cheque') ...[
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    context: context,
+                    controller: formData.chequeNoController,
+                    focusNode: formData.chequeNoFocusNode,
+                    label: 'Cheque No',
+                    validator: (value) => value == null || value.isEmpty
+                        ? 'Cheque No is required for cheque transactions'
+                        : null,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    context: context,
+                    controller: formData.chequeAmountController,
+                    focusNode: formData.chequeAmountFocusNode,
+                    label: 'Cheque Amount',
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                    ],
+                    validator: (value) => value == null || value.isEmpty
+                        ? 'Cheque Amount is required for cheque transactions'
+                        : null,
+                  ),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    focusNode: formData.chequeDateFocusNode,
+                    onTap: () =>
+                        controller.selectChequeDateForForm(context, index),
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'Cheque Date',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: Text(
+                        formData.chequeDate.value != null
+                            ? DateFormat(
+                                'dd-MM-yyyy',
+                              ).format(formData.chequeDate.value!)
+                            : 'Select Cheque Date',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: formData.bankNameController.text.isNotEmpty
+                        ? formData.bankNameController.text
+                        : null,
+                    focusNode: formData.bankNameFocusNode,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    decoration: InputDecoration(
+                      labelText: 'Bank Name',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    items: controller.bankList
                         .map(
-                          (s) => DropdownMenuItem<String>(
-                            value: s,
-                            child: Text(s),
+                          (bank) => DropdownMenuItem<String>(
+                            value: bank,
+                            child: Text(bank),
                           ),
                         )
                         .toList(),
-                    onChanged: null,
+                    onChanged: (value) {
+                      formData.bankNameController.text = value!;
+                    },
                     validator: (value) => value == null || value.isEmpty
-                        ? 'Status is required'
+                        ? 'Bank Name is required for cheque transactions'
                         : null,
                   ),
-                ),
+                ],
               ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            );
+          }
+        } else if (stepNum == 2) {
+          if (isDesktop) {
+            return Column(
               children: [
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.descriptionController,
-                    focusNode: formData.descriptionFocusNode,
-                    label: 'Description',
-                    readOnly: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Description is required'
-                        : null,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Obx(() {
+                        Item? selectedItem = formData.selectedItem.value != null
+                            ? controller.availableItems.firstWhereOrNull(
+                                (item) =>
+                                    item.id == formData.selectedItem.value!.id,
+                              )
+                            : null;
+                        return DropdownButtonFormField<Item>(
+                          initialValue: selectedItem,
+                          focusNode: formData.itemFocusNode,
+                          style: Theme.of(context).textTheme.bodySmall,
+                          decoration: InputDecoration(
+                            labelText: 'Item',
+                            labelStyle: Theme.of(context).textTheme.bodySmall,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          items: controller.availableItems
+                              .map(
+                                (item) => DropdownMenuItem<Item>(
+                                  value: item,
+                                  child: Text(
+                                    '${item.name} (Stock: ${item.availableStock})',
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (item) {
+                            formData.selectedItem.value = item;
+                            if (item != null) {
+                              formData.itemIdController.text = item.id
+                                  .toString();
+                              formData.itemNameController.text = item.name;
+                              formData.itemPriceController.text = item
+                                  .pricePerKg
+                                  .toStringAsFixed(2);
+                              formData.canWeightController.text = item.canWeight
+                                  .toStringAsFixed(2);
+                              formData.updateDescription();
+                              formData._updateTotalWeight();
+                            }
+                          },
+                          validator: (value) =>
+                              value == null ? 'Item is required' : null,
+                        );
+                      }),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.cansQuantityController,
+                        focusNode: formData.cansQuantityFocusNode,
+                        label: 'Cans Quantity',
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        readOnly: true,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Cans Quantity is required';
+                          }
+                          if (formData.selectedItem.value != null) {
+                            final quantity = int.tryParse(value) ?? 0;
+                            final canWeight =
+                                double.tryParse(
+                                  formData.canWeightController.text,
+                                ) ??
+                                0;
+                            final totalWeight = quantity * canWeight;
+                            if (totalWeight >
+                                formData.selectedItem.value!.availableStock) {
+                              return 'Not enough stock. Available: ${formData.selectedItem.value!.availableStock}';
+                            }
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.itemPriceController,
+                        focusNode: formData.itemPriceFocusNode,
+                        label: 'Price per Kg/L',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d*'),
+                          ),
+                        ],
+                        readOnly: false,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Price per Kg/L is required'
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.canWeightController,
+                        focusNode: formData.canWeightFocusNode,
+                        label: 'Can Weight (Kg/L)',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d*'),
+                          ),
+                        ],
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Can Weight is required'
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.sellingPriceController,
+                        focusNode: formData.sellingPriceFocusNode,
+                        label: 'Selling Price',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d*'),
+                          ),
+                        ],
+                        readOnly: true,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Selling Price is required'
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildTotalWeightField(
+                        controller: formData.totalWeightController,
+                        focusNode: formData.totalWeightFocusNode,
+                        context: context,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Cans Information from Table (Read-only)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.5),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Cans Information (from Customer Cans Table)',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              context: context,
+                              controller: formData.cansQuantityController,
+                              focusNode: formData.cansQuantityFocusNode,
+                              label: 'Current Cans',
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp(r'^\d*\.?\d*'),
+                                ),
+                              ],
+                              readOnly: true,
+                              validator: (value) =>
+                                  value == null || value.isEmpty
+                                  ? 'Current Cans is required'
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildTextField(
+                              context: context,
+                              controller: formData.receivedCans,
+                              focusNode: formData.receivedCansFocusNode,
+                              label: 'Received Cans',
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp(r'^\d*\.?\d*'),
+                                ),
+                              ],
+                              readOnly: true,
+                              validator: (value) =>
+                                  value == null || value.isEmpty
+                                  ? 'Received Cans is required'
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              context: context,
+                              controller: formData.balanceCans,
+                              focusNode: formData.balanceCansFocusNode,
+                              label: 'Balance Cans',
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp(r'^\d*\.?\d*'),
+                                ),
+                              ],
+                              readOnly: true,
+                              validator: (value) =>
+                                  value == null || value.isEmpty
+                                  ? 'Balance Cans is required'
+                                  : null,
+                            ),
+                          ),
+
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildTextField(
+                              context: context,
+                              controller: formData.previousCans,
+                              focusNode: formData.previousCansFocusNode,
+                              label: 'Previous Cans',
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp(r'^\d*\.?\d*'),
+                                ),
+                              ],
+                              readOnly: true,
+                              validator: (value) =>
+                                  value == null || value.isEmpty
+                                  ? 'Previous Cans is required'
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.referenceNoController,
-                    focusNode: formData.referenceNoFocusNode,
-                    label: 'Ref',
+                const SizedBox(height: 16),
+                Text(
+                  'Note: Cans information is automatically fetched from the customer\'s cans table and displayed as read-only.',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontStyle: FontStyle.italic,
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            );
+          } else {
+            return Column(
               children: [
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.categoryController,
-                    focusNode: formData.categoryFocusNode,
-                    label: 'Category',
+                Obx(() {
+                  Item? selectedItem = formData.selectedItem.value != null
+                      ? controller.availableItems.firstWhereOrNull(
+                          (item) => item.id == formData.selectedItem.value!.id,
+                        )
+                      : null;
+                  return DropdownButtonFormField<Item>(
+                    initialValue: selectedItem,
+                    focusNode: formData.itemFocusNode,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    decoration: InputDecoration(
+                      labelText: 'Item',
+                      labelStyle: Theme.of(context).textTheme.bodySmall,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    items: controller.availableItems
+                        .map(
+                          (item) => DropdownMenuItem<Item>(
+                            value: item,
+                            child: Text(
+                              '${item.name} (Stock: ${item.availableStock})',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (item) {
+                      formData.selectedItem.value = item;
+                      if (item != null) {
+                        formData.itemIdController.text = item.id.toString();
+                        formData.itemNameController.text = item.name;
+                        formData.itemPriceController.text = item.pricePerKg
+                            .toStringAsFixed(2);
+                        formData.canWeightController.text = item.canWeight
+                            .toStringAsFixed(2);
+                        formData.updateDescription();
+                        formData._updateTotalWeight();
+                      }
+                    },
+                    validator: (value) =>
+                        value == null ? 'Item is required' : null,
+                  );
+                }),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  context: context,
+                  controller: formData.cansQuantityController,
+                  focusNode: formData.cansQuantityFocusNode,
+                  label: 'Cans Quantity',
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  readOnly: true,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Cans Quantity is required';
+                    }
+                    if (formData.selectedItem.value != null) {
+                      final quantity = int.tryParse(value) ?? 0;
+                      final canWeight =
+                          double.tryParse(formData.canWeightController.text) ??
+                          0;
+                      final totalWeight = quantity * canWeight;
+                      if (totalWeight >
+                          formData.selectedItem.value!.availableStock) {
+                        return 'Not enough stock. Available: ${formData.selectedItem.value!.availableStock}';
+                      }
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  context: context,
+                  controller: formData.itemPriceController,
+                  focusNode: formData.itemPriceFocusNode,
+                  label: 'Price per Kg/L',
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
                   ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                  ],
+                  readOnly: true,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Price per Kg/L is required'
+                      : null,
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildTextField(
-                    context: context,
-                    controller: formData.createdByController,
-                    focusNode: formData.createdByFocusNode,
-                    label: 'Created By',
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Created By is required'
-                        : null,
+                const SizedBox(height: 16),
+                _buildTextField(
+                  context: context,
+                  controller: formData.canWeightController,
+                  focusNode: formData.canWeightFocusNode,
+                  label: 'Can Weight (Kg/L)',
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
                   ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                  ],
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Can Weight is required'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  context: context,
+                  controller: formData.sellingPriceController,
+                  focusNode: formData.sellingPriceFocusNode,
+                  label: 'Selling Price',
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                  ],
+                  readOnly: true,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Selling Price is required'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                _buildTotalWeightField(
+                  controller: formData.totalWeightController,
+                  focusNode: formData.totalWeightFocusNode,
+                  context: context,
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  context: context,
+                  controller: formData.balanceCans,
+                  focusNode: formData.balanceCansFocusNode,
+                  label: 'Balance Cans',
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                  ],
+                  readOnly: true,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Balance Cans is required'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  context: context,
+                  controller: formData.receivedCans,
+                  focusNode: formData.receivedCansFocusNode,
+                  label: 'Received Cans',
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                  ],
+                  readOnly: false,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Received Cans is required'
+                      : null,
                 ),
               ],
-            ),
-          ],
-        );
-      } else {
-        return Column(
-          children: [
-            _buildTextField(
-              controller: formData.debitController,
-              focusNode: formData.debitFocusNode,
-              context: context,
-              label: 'Debit',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-                signed: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*')),
-              ],
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Debit is required';
-                }
-                if (double.tryParse(value) == null) {
-                  return 'Please enter a valid number';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: formData.creditController,
-              focusNode: formData.creditFocusNode,
-              label: 'Credit',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-                signed: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*')),
-              ],
-              context: context,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Credit is required';
-                }
-                if (double.tryParse(value) == null) {
-                  return 'Please enter a valid number';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: formData.balanceController,
-              focusNode: formData.balanceFocusNode,
-              context: context,
-              label: 'Balance',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-              ],
-              readOnly: true,
-              validator: (value) =>
-                  value == null || value.isEmpty ? 'Balance is required' : null,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              initialValue: formData.status.value.isNotEmpty
-                  ? formData.status.value
-                  : null,
-              focusNode: formData.statusFocusNode,
-              style: Theme.of(context).textTheme.bodySmall,
-              decoration: InputDecoration(
-                labelText: 'Status',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+            );
+          }
+        } else {
+          if (isDesktop) {
+            return Column(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.debitController,
+                        focusNode: formData.debitFocusNode,
+                        label: 'Debit',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^-?\d*\.?\d*'),
+                          ),
+                        ],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Debit is required';
+                          }
+                          if (double.tryParse(value) == null) {
+                            return 'Please enter a valid number';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.creditController,
+                        focusNode: formData.creditFocusNode,
+                        label: 'Credit',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^-?\d*\.?\d*'),
+                          ),
+                        ],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Credit is required';
+                          }
+                          if (double.tryParse(value) == null) {
+                            return 'Please enter a valid number';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              items: const ['Debit', 'Credit']
-                  .map(
-                    (s) => DropdownMenuItem<String>(value: s, child: Text(s)),
-                  )
-                  .toList(),
-              onChanged: null,
-              validator: (value) =>
-                  value == null || value.isEmpty ? 'Status is required' : null,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: formData.descriptionController,
-              focusNode: formData.descriptionFocusNode,
-              label: 'Description',
-              readOnly: true,
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Description is required'
-                  : null,
-              context: context,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: formData.referenceNoController,
-              focusNode: formData.referenceNoFocusNode,
-              label: 'Ref',
-              context: context,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: formData.categoryController,
-              focusNode: formData.categoryFocusNode,
-              label: 'Category',
-              context: context,
-            ),
-            const SizedBox(height: 16),
-            _buildTextField(
-              controller: formData.createdByController,
-              focusNode: formData.createdByFocusNode,
-              label: 'Created By',
-              validator: (value) => value == null || value.isEmpty
-                  ? 'Created By is required'
-                  : null,
-              context: context,
-            ),
-          ],
-        );
-      }
-    }
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.balanceController,
+                        focusNode: formData.balanceFocusNode,
+                        label: 'Balance',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d*'),
+                          ),
+                        ],
+                        readOnly: true,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Balance is required'
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: formData.status.value.isNotEmpty
+                            ? formData.status.value
+                            : null,
+                        focusNode: formData.statusFocusNode,
+                        style: Theme.of(context).textTheme.bodySmall,
+                        decoration: InputDecoration(
+                          labelText: 'Status',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        items: const ['Debit', 'Credit']
+                            .map(
+                              (s) => DropdownMenuItem<String>(
+                                value: s,
+                                child: Text(s),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: null,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Status is required'
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.descriptionController,
+                        focusNode: formData.descriptionFocusNode,
+                        label: 'Description',
+                        readOnly: true,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Description is required'
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.referenceNoController,
+                        focusNode: formData.referenceNoFocusNode,
+                        label: 'Ref',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.categoryController,
+                        focusNode: formData.categoryFocusNode,
+                        label: 'Category',
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildTextField(
+                        context: context,
+                        controller: formData.createdByController,
+                        focusNode: formData.createdByFocusNode,
+                        label: 'Created By',
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Created By is required'
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          } else {
+            return Column(
+              children: [
+                _buildTextField(
+                  controller: formData.debitController,
+                  focusNode: formData.debitFocusNode,
+                  context: context,
+                  label: 'Debit',
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*')),
+                  ],
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Debit is required';
+                    }
+                    if (double.tryParse(value) == null) {
+                      return 'Please enter a valid number';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  controller: formData.creditController,
+                  focusNode: formData.creditFocusNode,
+                  label: 'Credit',
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*')),
+                  ],
+                  context: context,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Credit is required';
+                    }
+                    if (double.tryParse(value) == null) {
+                      return 'Please enter a valid number';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  controller: formData.balanceController,
+                  focusNode: formData.balanceFocusNode,
+                  context: context,
+                  label: 'Balance',
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                  ],
+                  readOnly: true,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Balance is required'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: formData.status.value.isNotEmpty
+                      ? formData.status.value
+                      : null,
+                  focusNode: formData.statusFocusNode,
+                  style: Theme.of(context).textTheme.bodySmall,
+                  decoration: InputDecoration(
+                    labelText: 'Status',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  items: const ['Debit', 'Credit']
+                      .map(
+                        (s) =>
+                            DropdownMenuItem<String>(value: s, child: Text(s)),
+                      )
+                      .toList(),
+                  onChanged: null,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Status is required'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  controller: formData.descriptionController,
+                  focusNode: formData.descriptionFocusNode,
+                  label: 'Description',
+                  readOnly: true,
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Description is required'
+                      : null,
+                  context: context,
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  controller: formData.referenceNoController,
+                  focusNode: formData.referenceNoFocusNode,
+                  label: 'Ref',
+                  context: context,
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  controller: formData.categoryController,
+                  focusNode: formData.categoryFocusNode,
+                  label: 'Category',
+                  context: context,
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  controller: formData.createdByController,
+                  focusNode: formData.createdByFocusNode,
+                  label: 'Created By',
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Created By is required'
+                      : null,
+                  context: context,
+                ),
+              ],
+            );
+          }
+        }
+      },
+    );
   }
 
   Widget _buildTextField({
@@ -5443,6 +5792,7 @@ class EntryFormData {
   late TextEditingController sellingPriceController;
   late TextEditingController totalWeightController;
   late TextEditingController balanceCans;
+  late TextEditingController previousCans;
   late TextEditingController receivedCans;
 
   // New cheque field controllers
@@ -5480,6 +5830,7 @@ class EntryFormData {
   final sellingPriceFocusNode = FocusNode();
   final totalWeightFocusNode = FocusNode();
   final balanceCansFocusNode = FocusNode();
+  final previousCansFocusNode = FocusNode();
   final receivedCansFocusNode = FocusNode();
   final debitFocusNode = FocusNode();
   final creditFocusNode = FocusNode();
@@ -5550,9 +5901,8 @@ class EntryFormData {
     cansQuantityController = TextEditingController();
     sellingPriceController = TextEditingController();
     totalWeightController = TextEditingController();
-    balanceCans = TextEditingController(
-      text: ledgerTableController.balanceCans.toStringAsFixed(2),
-    );
+    balanceCans = TextEditingController(text: '0.00');
+    previousCans = TextEditingController(text: '0.00');
     receivedCans = TextEditingController();
 
     // Initialize new cheque controllers
@@ -5566,12 +5916,19 @@ class EntryFormData {
 
     // Existing listeners
     canWeightController.addListener(_onCanOrQtyChanged);
-    cansQuantityController.addListener(_onCanOrQtyChanged);
     itemPriceController.addListener(_onCanOrQtyChanged);
     creditController.addListener(_handleCreditInputForDebitTransaction);
     debitController.addListener(_handleDebitInputForCreditTransaction);
     creditController.addListener(_updateBalance);
     debitController.addListener(_updateBalance);
+
+    // Add listener to update cans quantity when account changes
+    accountIdController.addListener(() {
+      final accountId = int.tryParse(accountIdController.text) ?? 0;
+      if (accountId > 0) {
+        _updateCansQuantityFromCansTable(accountId);
+      }
+    });
 
     // New listener for payment method changes
     ever(paymentMethod, (method) {
@@ -5693,7 +6050,7 @@ class EntryFormData {
     if (selectedItem.value == null) return;
     final pricePerKg = double.tryParse(itemPriceController.text) ?? 0;
     final canWeight = double.tryParse(canWeightController.text) ?? 0;
-    final quantity = int.tryParse(cansQuantityController.text) ?? 0;
+    final quantity = double.tryParse(cansQuantityController.text) ?? 0;
     if (pricePerKg > 0 && canWeight > 0 && quantity > 0) {
       final sellingPrice = pricePerKg * canWeight * quantity;
       sellingPriceController.text = sellingPrice.toStringAsFixed(2);
@@ -5718,9 +6075,23 @@ class EntryFormData {
 
   void _updateTotalWeight() {
     final canWeight = double.tryParse(canWeightController.text) ?? 0;
-    final quantity = int.tryParse(cansQuantityController.text) ?? 0;
+    final quantity = double.tryParse(cansQuantityController.text) ?? 0;
     final totalWeight = canWeight * quantity;
     totalWeightController.text = totalWeight.toStringAsFixed(2);
+  }
+
+  void _updateCansQuantityFromCansTable(int accountId) {
+    final cansController = Get.find<CansController>();
+    // First ensure cans data is loaded
+    if (cansController.cans.isEmpty) {
+      cansController.fetchCans();
+    }
+    final cansRecord = cansController.getCansForCustomer(accountId);
+    if (cansRecord != null) {
+      cansQuantityController.text = cansRecord.currentCans.toStringAsFixed(2);
+    } else {
+      cansQuantityController.clear();
+    }
   }
 
   String generateItemDescription() {
@@ -5733,12 +6104,12 @@ class EntryFormData {
     final itemName = selectedItem.value!.name;
     final canWeight = canWeightController.text;
     final canQty = cansQuantityController.text;
-    final totalWeight =
-        (double.tryParse(canWeight) ?? 0) * (int.tryParse(canQty) ?? 0);
+    final canQtyDouble = double.tryParse(canQty) ?? 0;
+    final totalWeight = (double.tryParse(canWeight) ?? 0) * canQtyDouble;
     final pricePerKg = itemPriceController.text;
     final totalAmount = sellingPriceController.text;
 
-    return '$itemName (can of ${canWeight}Kgs*$canQty${int.parse(canQty) > 1 ? 'cans' : 'can'} = ${totalWeight}Kgs at Price $pricePerKg/Kg and total amount is: $totalAmount)';
+    return '$itemName (can of ${canWeight}Kgs*$canQty${canQtyDouble > 1 ? 'cans' : 'can'} = ${totalWeight}Kgs at Price $pricePerKg/Kg and total amount is: $totalAmount)';
   }
 
   void updateDescription() {
@@ -5771,6 +6142,7 @@ class EntryFormData {
     cansQuantityController.dispose();
     sellingPriceController.dispose();
     totalWeightController.dispose();
+    previousCans.dispose();
     balanceCans.dispose();
     receivedCans.dispose();
 
@@ -5792,6 +6164,7 @@ class EntryFormData {
     canWeightFocusNode.dispose();
     sellingPriceFocusNode.dispose();
     totalWeightFocusNode.dispose();
+    previousCansFocusNode.dispose();
     balanceCansFocusNode.dispose();
     receivedCansFocusNode.dispose();
     debitFocusNode.dispose();

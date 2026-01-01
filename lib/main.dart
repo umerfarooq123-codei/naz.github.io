@@ -68,7 +68,7 @@ void main() async {
     databaseFactory = databaseFactoryFfi;
   }
   // Initialize all repositories and controllers via service bindings
-  Get.put(ServiceBindings());
+  Get.put(ServiceBindings(), permanent: true);
   runApp(const MyApp());
 }
 
@@ -545,6 +545,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     ledgerController.getStats();
     return BaseLayout(
       showBackButton: false,
+      onBackButtonPressed: null,
       appBarTitle: 'Business Dashboard',
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20), // More padding for modern spacing
@@ -639,10 +640,12 @@ class BaseLayout extends StatefulWidget {
     required this.child,
     required this.appBarTitle,
     required this.showBackButton,
+    required this.onBackButtonPressed,
   });
   final Widget child;
   final String appBarTitle;
   final bool showBackButton;
+  final VoidCallback? onBackButtonPressed;
 
   @override
   State<BaseLayout> createState() => _BaseLayoutState();
@@ -753,7 +756,14 @@ class _BaseLayoutState extends State<BaseLayout> {
           context,
         ).colorScheme.surface, // Uses light surface
         appBar: AppBar(
-          automaticallyImplyLeading: widget.showBackButton,
+          automaticallyImplyLeading:
+              false, // Important: we provide our own back button
+          leading: widget.showBackButton
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: widget.onBackButtonPressed,
+                )
+              : null,
           title: Text(
             widget.appBarTitle,
             style: Theme.of(context).textTheme.titleLarge,

@@ -6,6 +6,7 @@ import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/main.dart';
 import 'package:ledger_master/shared/components/constants.dart';
+import 'package:ledger_master/shared/widgets/navigation_files.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
 
 import '../../core/models/customer.dart';
@@ -20,6 +21,10 @@ class CustomerLedgerTablePage extends StatelessWidget {
     // Remove old controller instance and create a fresh one
     Get.delete<CustomerLedgerTableController>();
     final controller = Get.put(CustomerLedgerTableController());
+
+    // Set the customer in the controller
+    controller.currentCustomer.value = customer;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       controller.loadLedgerEntries();
     });
@@ -27,6 +32,9 @@ class CustomerLedgerTablePage extends StatelessWidget {
     return BaseLayout(
       appBarTitle: "Ledger: ${customer.name}",
       showBackButton: true,
+      onBackButtonPressed: () {
+        NavigationHelper.pushReplacement(context, CustomerList());
+      },
       child: Obx(() {
         return Column(
           children: [
@@ -272,15 +280,6 @@ class CustomerLedgerTablePage extends StatelessWidget {
                     customer.name,
                   ),
                   builder: (context, snapshott) {
-                    debugPrint('[CustomerLedgerTable]');
-                    debugPrint('name=${customer.name}');
-                    debugPrint('type=${customer.type}');
-                    debugPrint('id=${customer.id}');
-                    debugPrint(
-                      '[OpeningBalance] state=${snapshott.connectionState}, '
-                      'data=${snapshott.data}, error=${snapshott.error}',
-                    );
-
                     return FutureBuilder<DebitCreditSummary>(
                       future: controller.customerListController
                           .getCustomerDebitCredit(
@@ -289,19 +288,12 @@ class CustomerLedgerTablePage extends StatelessWidget {
                             customer.id!,
                           ),
                       builder: (context, snapshot) {
-                        debugPrint(
-                          '[DebitCredit] state=${snapshot.connectionState}, '
-                          'data=${snapshot.data}, error=${snapshot.error}',
-                        );
-
                         if (snapshot.connectionState ==
                             ConnectionState.waiting) {
-                          debugPrint('[DebitCredit] waiting...');
                           return const SizedBox(height: 20, width: 20);
                         }
 
                         if (snapshot.hasError) {
-                          debugPrint('[DebitCredit] error=${snapshot.error}');
                           return Text(
                             'Error: ${snapshot.error}',
                             style: TextStyle(
@@ -311,59 +303,66 @@ class CustomerLedgerTablePage extends StatelessWidget {
                         }
 
                         if (!snapshot.hasData) {
-                          debugPrint('[DebitCredit] no data');
                           return const Text('No data');
                         }
 
                         final summary = snapshot.data!;
-                        debugPrint(
-                          '[Summary] credit=${summary.credit}, '
-                          'debit=${summary.debit}',
-                        );
 
-                        debugPrint(
-                          '[NetBalanceCalc] credit=${summary.credit}, '
-                          'opening=${snapshott.data}, '
-                          'debit=${summary.debit}',
-                        );
+                        // Fetch customer ledger debit separately for net balance
+                        return FutureBuilder<DebitCreditSummary>(
+                          future: CustomerLedgerRepository()
+                              .fetchTotalDebitAndCredit(
+                                customer.name,
+                                customer.id!,
+                              ),
+                          builder: (context, customerLedgerSnapshot) {
+                            final customerLedgerDebit =
+                                customerLedgerSnapshot.hasData
+                                ? double.tryParse(
+                                        customerLedgerSnapshot.data!.debit,
+                                      ) ??
+                                      0.0
+                                : 0.0;
 
-                        return Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (snapshott.connectionState ==
-                                ConnectionState.waiting)
-                              const SizedBox(height: 20, width: 20)
-                            else
-                              snapshott.data != 0 || snapshott.data != 0.0
-                                  ? totalBox(
-                                      "Opening Bal",
-                                      snapshott.data!,
-                                      context,
-                                    )
-                                  : SizedBox.shrink(),
-                            const SizedBox(width: 16),
-                            totalBox(
-                              "Credit",
-                              double.parse(summary.credit),
-                              context,
-                            ),
-                            const SizedBox(width: 16),
-                            totalBox(
-                              "Debit",
-                              double.parse(summary.debit),
-                              context,
-                            ),
-                            const SizedBox(width: 16),
-                            totalBox(
-                              "Net Balance",
-                              ((double.parse(summary.credit) +
-                                          (snapshott.data ?? 0)) -
-                                      double.parse(summary.debit))
-                                  .clamp(0, double.infinity),
-                              context,
-                            ),
-                          ],
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (snapshott.connectionState ==
+                                    ConnectionState.waiting)
+                                  const SizedBox(height: 20, width: 20)
+                                else
+                                  snapshott.data != 0 || snapshott.data != 0.0
+                                      ? totalBox(
+                                          "Opening Bal",
+                                          snapshott.data!,
+                                          context,
+                                        )
+                                      : SizedBox.shrink(),
+                                const SizedBox(width: 16),
+                                totalBox(
+                                  "Credit",
+                                  double.parse(summary.credit),
+                                  context,
+                                ),
+                                const SizedBox(width: 16),
+                                totalBox(
+                                  "Debit",
+                                  double.parse(summary.debit),
+                                  context,
+                                ),
+                                const SizedBox(width: 16),
+                                totalBox(
+                                  "Net Balance",
+                                  ((double.parse(summary.credit) +
+                                              (snapshott.data ?? 0)) -
+                                          customerLedgerDebit)
+                                      .clamp(0, double.infinity),
+                                  context,
+                                ),
+                              ],
+                            );
+                          },
                         );
                       },
                     );
@@ -638,7 +637,19 @@ class CustomerLedgerTableController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    _initializeFilters();
+
+    // Watch for changes to customer and reinitialize
+    ever(currentCustomer, (_) {
+      _initializeFilters();
+    });
+  }
+
+  void _initializeFilters() {
     if (currentCustomer.value != null) {
+      debugPrint(
+        '🔧 _initializeFilters: Initializing for customer: ${currentCustomer.value!.name}',
+      );
       final now = DateTime.now();
       final thirtyDaysAgo = now.subtract(Duration(days: 30));
       fromDate.value = DateTime(
@@ -659,6 +670,8 @@ class CustomerLedgerTableController extends GetxController {
 
       loadOpeningBalance();
       applyFilters();
+    } else {
+      debugPrint('⚠️ _initializeFilters: currentCustomer is still null!');
     }
   }
 
@@ -671,15 +684,25 @@ class CustomerLedgerTableController extends GetxController {
   }
 
   Future<void> applyFilters() async {
-    if (currentCustomer.value == null) return;
+    if (currentCustomer.value == null) {
+      debugPrint('⚠️ applyFilters: currentCustomer is null');
+      return;
+    }
 
     isLoading.value = true;
     try {
       final customer = currentCustomer.value!;
+      debugPrint(
+        '📊 applyFilters: Loading entries for customer: ${customer.name} (ID: ${customer.id})',
+      );
       final entries = await repo.getCustomerLedgerEntries(
         customer.name,
         customer.id!,
       );
+      debugPrint(
+        '📊 applyFilters: Retrieved ${entries.length} entries from database',
+      );
+      debugPrint("entriesss${entries.length}");
 
       final fromDateValue = DateTime(
         fromDate.value.year,
@@ -740,6 +763,9 @@ class CustomerLedgerTableController extends GetxController {
       }
 
       filteredLedgerEntries.assignAll(filtered);
+      debugPrint(
+        '📊 applyFilters: After filtering, ${filtered.length} entries match criteria',
+      );
 
       if (filteredLedgerEntries.isNotEmpty) {
         final lastIndex = filteredLedgerEntries.length - 1;
@@ -749,7 +775,7 @@ class CustomerLedgerTableController extends GetxController {
       }
     } catch (e) {
       if (kDebugMode) {
-        print("Error applying filters: $e");
+        print("❌ Error applying filters: $e");
       }
       filteredLedgerEntries.clear();
     } finally {
@@ -780,6 +806,16 @@ class CustomerLedgerTableController extends GetxController {
   }
 
   Future<void> loadLedgerEntries() async {
+    if (currentCustomer.value == null) return;
+
+    // Ensure the toDate includes today so new entries are visible
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (toDate.value.isBefore(today)) {
+      toDate.value = today;
+      toDateController.text = DateFormat('dd-MM-yyyy').format(today);
+    }
+
     await loadOpeningBalance();
     await applyFilters();
   }
@@ -838,8 +874,9 @@ class _CustomerLedgerEntryAddEditState
   final _bankNameController = TextEditingController();
   final customerLedgerTableController = Get.put(
     CustomerLedgerTableController(),
+    permanent: true,
   );
-  String _transactionType = 'Credit';
+  String _transactionType = 'Debit';
   String _paymentMethod = 'Cash';
   DateTime _selectedDate = DateTime.now();
   DateTime? _selectedChequeDate;
@@ -947,7 +984,9 @@ class _CustomerLedgerEntryAddEditState
         voucherNo: _voucherNoController.text,
         date: _selectedDate,
         customerName: widget.customer.name,
-        description: _descriptionController.text,
+        description: _descriptionController.text.isNotEmpty
+            ? _descriptionController.text
+            : "-",
         debit: _transactionType == 'Debit' ? amount : 0.0,
         credit: _transactionType == 'Credit' ? amount : 0.0,
         balance: 0.0,
@@ -1096,6 +1135,12 @@ class _CustomerLedgerEntryAddEditState
       appBarTitle: widget.entry == null
           ? 'Add Ledger Entry'
           : 'Edit Ledger Entry',
+      onBackButtonPressed: () {
+        NavigationHelper.pushReplacement(
+          context,
+          CustomerLedgerTablePage(customer: widget.customer),
+        );
+      },
       showBackButton: true,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1174,16 +1219,16 @@ class _CustomerLedgerEntryAddEditState
                                     child: DropdownButtonFormField<String>(
                                       initialValue: _transactionType,
                                       items: [
-                                        DropdownMenuItem(
-                                          value: 'Credit',
-                                          child: Text(
-                                            'Credit',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall!
-                                                .copyWith(color: Colors.white),
-                                          ),
-                                        ),
+                                        // DropdownMenuItem(
+                                        //   value: 'Credit',
+                                        //   child: Text(
+                                        //     'Credit',
+                                        //     style: Theme.of(context)
+                                        //         .textTheme
+                                        //         .bodySmall!
+                                        //         .copyWith(color: Colors.white),
+                                        //   ),
+                                        // ),
                                         DropdownMenuItem(
                                           value: 'Debit',
                                           child: Text(

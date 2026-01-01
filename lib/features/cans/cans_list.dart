@@ -16,13 +16,14 @@ class CansList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = Get.put(CansController(Get.find()));
+    final controller = Get.put(CansController(Get.find()), permanent: true);
     final isDesktop = MediaQuery.of(context).size.width > 800;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Obx(
       () => BaseLayout(
         showBackButton: false,
+        onBackButtonPressed: null,
         appBarTitle: "Cans Management",
         child: Stack(
           children: [
@@ -83,7 +84,7 @@ class CansList extends StatelessWidget {
                                     : 2,
                                 crossAxisSpacing: 16,
                                 mainAxisSpacing: 16,
-                                childAspectRatio: isDesktop ? 2 : 1.4,
+                                childAspectRatio: isDesktop ? 2.3 : 2,
                               ),
                           itemCount: controller.filteredCans.length,
                           itemBuilder: (context, index) {
@@ -175,21 +176,14 @@ class CansList extends StatelessWidget {
                                                       MainAxisSize.min,
                                                   children: [
                                                     Text(
-                                                      'Opening: ${cans.openingBalanceCans.toStringAsFixed(2)}',
+                                                      'Opening Balance Cans: ${cans.openingBalanceCans.toStringAsFixed(2)}',
                                                       style: Theme.of(
                                                         context,
                                                       ).textTheme.bodySmall,
                                                     ),
                                                     const SizedBox(height: 3),
                                                     Text(
-                                                      'Current: ${cans.currentCans.toStringAsFixed(2)}',
-                                                      style: Theme.of(
-                                                        context,
-                                                      ).textTheme.bodySmall,
-                                                    ),
-                                                    const SizedBox(height: 3),
-                                                    Text(
-                                                      'Total: ${cans.totalCans.toStringAsFixed(2)}',
+                                                      'Total Cans: ${cans.totalCans.toStringAsFixed(2)}',
                                                       style: Theme.of(
                                                         context,
                                                       ).textTheme.bodySmall,
@@ -205,11 +199,16 @@ class CansList extends StatelessWidget {
                                                     context: context,
                                                     onPressed: () {
                                                       confirmDeleteDialog(
-                                                        onConfirm: () {
-                                                          controller
+                                                        onConfirm: () async {
+                                                          await controller
                                                               .deleteCansTable(
                                                                 cans.id!,
                                                               );
+                                                          if (context.mounted) {
+                                                            Navigator.pop(
+                                                              context,
+                                                            );
+                                                          }
                                                         },
                                                         context: context,
                                                       );

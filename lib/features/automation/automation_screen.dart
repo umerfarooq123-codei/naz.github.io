@@ -73,6 +73,7 @@ class AutomationScreen extends StatelessWidget {
     return BaseLayout(
       appBarTitle: 'Automation & Integrations',
       showBackButton: false,
+      onBackButtonPressed: null,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: LayoutBuilder(

@@ -5,6 +5,7 @@ import 'package:ledger_master/features/automation/automation_screen.dart';
 import 'package:ledger_master/features/automation/csv_import_repository.dart';
 import 'package:ledger_master/features/automation/export_repository.dart';
 import 'package:ledger_master/features/bank_reconciliation/bank_repository.dart';
+import 'package:ledger_master/features/cans/cans_controller.dart';
 import 'package:ledger_master/features/customer_vendor/customer_ledger_table.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
@@ -16,43 +17,55 @@ import 'package:ledger_master/features/payroll/payroll_repository.dart';
 import 'package:ledger_master/features/purchases_expenses/purchase_and_expense_list_and_form.dart';
 import 'package:ledger_master/features/purchases_expenses/purchase_expense_repository.dart';
 import 'package:ledger_master/features/sales_invoicing/invoice_repository.dart';
+import 'package:ledger_master/features/vendor_ledger/vendor_ledger_repository.dart';
+import 'package:ledger_master/features/vendor_ledger/vendor_ledger_table_controller.dart';
 import 'package:ledger_master/main.dart';
 
 /// Service Bindings - Initialize all repositories and controllers when app starts
 class ServiceBindings extends Bindings {
   @override
   void dependencies() {
-    // Initialize Repositories
-    Get.lazyPut<LedgerRepository>(() => LedgerRepository());
-    Get.lazyPut<CustomerRepository>(() => CustomerRepository());
-    Get.lazyPut<CustomerLedgerRepository>(() => CustomerLedgerRepository());
-    Get.lazyPut<InventoryRepository>(() => InventoryRepository());
-    Get.lazyPut<ExpensePurchaseRepository>(() => ExpensePurchaseRepository());
-    Get.lazyPut<InvoiceRepository>(() => InvoiceRepository());
-    Get.lazyPut<PayrollRepository>(() => PayrollRepository());
-    Get.lazyPut<BankRepository>(() => BankRepository());
-    Get.lazyPut<CansRepository>(() => CansRepository());
-    Get.lazyPut<ExportRepository>(() => ExportRepository());
-    Get.lazyPut<CSVImportRepository>(() => CSVImportRepository());
-    Get.lazyPut<KPIRepository>(() => KPIRepository());
+    // Initialize Repositories (keep existing)
+    Get.put<LedgerRepository>(LedgerRepository(), permanent: true);
+    Get.put<CustomerRepository>(CustomerRepository(), permanent: true);
+    Get.put<CustomerLedgerRepository>(
+      CustomerLedgerRepository(),
+      permanent: true,
+    );
+    Get.put<VendorLedgerRepository>(VendorLedgerRepository(), permanent: true);
+    Get.put<InventoryRepository>(InventoryRepository(), permanent: true);
+    Get.put<ExpensePurchaseRepository>(
+      ExpensePurchaseRepository(),
+      permanent: true,
+    );
+    Get.put<InvoiceRepository>(InvoiceRepository(), permanent: true);
+    Get.put<PayrollRepository>(PayrollRepository(), permanent: true);
+    Get.put<BankRepository>(BankRepository(), permanent: true);
+    Get.put<CansRepository>(CansRepository(), permanent: true);
+    Get.put<ExportRepository>(ExportRepository(), permanent: true);
+    Get.put<CSVImportRepository>(CSVImportRepository(), permanent: true);
+    Get.put<KPIRepository>(KPIRepository(), permanent: true);
 
     // Initialize Controllers
-    Get.put(ThemeController());
+    Get.put(ThemeController(), permanent: true);
+    Get.put(LedgerController(Get.find<LedgerRepository>()), permanent: true);
+    Get.put(LedgerTableController(), permanent: true);
+    Get.put(
+      CustomerController(Get.find<CustomerRepository>()),
+      permanent: true,
+    );
+    Get.put(CustomerLedgerTableController(), permanent: true);
+    Get.put(VendorLedgerTableController(), permanent: true);
+    Get.put(CansController(CansRepository()), permanent: true);
+    Get.put(ItemLedgerTableController(), permanent: true);
 
-    Get.put(LedgerController(Get.find<LedgerRepository>()));
-    Get.put(LedgerTableController());
+    // ✅ Add ItemController registration
+    Get.put(
+      ItemController(Get.find<InventoryRepository>(), null),
+      permanent: true,
+    );
 
-    Get.put(CustomerController(Get.find<CustomerRepository>()));
-    Get.put(CustomerLedgerTableController());
-
-    Get.put(ItemController(Get.find<InventoryRepository>(), null));
-    Get.put(ItemLedgerTableController());
-    // Note: ItemLedgerEntryController requires an Item parameter (currentItem)
-    // It cannot be initialized globally - instantiate it when needed with:
-    // Get.put(ItemLedgerEntryController(item))
-
-    Get.put(ExpensePurchaseGetxController());
-
-    Get.put(AutomationController());
+    Get.put(ExpensePurchaseGetxController(), permanent: true);
+    Get.put(AutomationController(), permanent: true);
   }
 }
