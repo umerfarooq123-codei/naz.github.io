@@ -93,6 +93,60 @@ class VendorLedgerRepository {
     return await db.insert('vendor_ledger_entries', entry.toMap());
   }
 
+  // Sync item ledger credit transaction to vendor ledger
+  Future<void> syncItemLedgerToVendorLedger({
+    required String vendorName,
+    required int vendorId,
+    required String voucherNo,
+    required String transactionType,
+    required double amount,
+    required DateTime date,
+  }) async {
+    final db = await _dbHelper.database;
+
+    try {
+      // Get the latest balance for this vendor
+      final lastEntryResult = await db.query(
+        'vendor_ledger_entries',
+        where: 'UPPER(vendorName) = UPPER(?) AND vendorId = ?',
+        whereArgs: [vendorName, vendorId],
+        orderBy: 'date DESC, id DESC',
+        limit: 1,
+      );
+
+      double previousBalance = 0.0;
+      if (lastEntryResult.isNotEmpty) {
+        previousBalance =
+            (lastEntryResult.first['balance'] as num?)?.toDouble() ?? 0.0;
+      }
+
+      // Calculate new balance - Credit increases vendor balance (amount owed)
+      double newBalance = previousBalance + amount;
+
+      // Create vendor ledger entry
+      final vendorEntry = VendorLedgerEntry(
+        voucherNo: voucherNo,
+        vendorName: vendorName,
+        vendorId: vendorId,
+        date: date,
+        description: 'Item Ledger: $transactionType transaction',
+        debit: 0.0,
+        credit: amount,
+        balance: newBalance,
+        transactionType: 'Credit',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      await db.insert('vendor_ledger_entries', vendorEntry.toMap());
+      debugPrint(
+        '✅ Synced item ledger to vendor ledger: $vendorName - $amount (Credit)',
+      );
+    } catch (e) {
+      debugPrint('❌ Error syncing to vendor ledger: $e');
+    }
+  }
+
   Future<List<VendorLedgerEntry>> getVendorLedgerEntries(
     String vendorName,
     int vendorId,

@@ -7,12 +7,10 @@ import 'package:intl/intl.dart';
 import 'package:ledger_master/core/models/item.dart';
 import 'package:ledger_master/core/service_bindings.dart';
 import 'package:ledger_master/core/theme/app_theme.dart';
-import 'package:ledger_master/features/bank_reconciliation/bank_transaction_list.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/inventory/item_list.dart';
 import 'package:ledger_master/features/ledger/ledger_home.dart';
 import 'package:ledger_master/features/purchases_expenses/purchase_and_expense_list_and_form.dart';
-import 'package:ledger_master/features/sales_invoicing/invoice_list.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -20,7 +18,6 @@ import 'package:window_manager/window_manager.dart';
 
 import 'features/automation/automation_screen.dart';
 import 'features/cans/cans_list.dart';
-import 'features/payroll/employee_list.dart';
 
 class ThemeController extends GetxController {
   RxBool isDarkMode = true.obs;
@@ -719,12 +716,12 @@ class _BaseLayoutState extends State<BaseLayout> {
       'icon': Icons.people,
       'page': CustomerList(),
     },
-    {
-      'title': 'Sales & Invoicing',
-      'icon': Icons.receipt_long,
-      'page': InvoiceList(),
-    },
-    {'title': 'Inventory', 'icon': Icons.inventory, 'page': ItemList()},
+    // {
+    //   'title': 'Sales & Invoicing',
+    //   'icon': Icons.receipt_long,
+    //   'page': InvoiceList(),
+    // },
+    {'title': 'Inventory', 'icon': Icons.warehouse, 'page': ItemList()},
     {
       'title': 'Purchases & Expenses',
       'icon': Icons.shopping_cart,
@@ -735,12 +732,12 @@ class _BaseLayoutState extends State<BaseLayout> {
       'icon': Icons.inventory_2,
       'page': const CansList(),
     },
-    {
-      'title': 'Bank Reconciliation',
-      'icon': Icons.account_balance_wallet,
-      'page': BankTransactionList(),
-    },
-    {'title': 'Payroll', 'icon': Icons.payments, 'page': EmployeeList()},
+    // {
+    //   'title': 'Bank Reconciliation',
+    //   'icon': Icons.account_balance_wallet,
+    //   'page': BankTransactionList(),
+    // },
+    // {'title': 'Payroll', 'icon': Icons.payments, 'page': EmployeeList()},
     {'title': 'Automation', 'icon': Icons.settings, 'page': AutomationScreen()},
   ];
 

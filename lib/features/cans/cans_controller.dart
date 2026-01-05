@@ -38,18 +38,16 @@ class CansController extends GetxController {
   void _applyFilters() {
     final query = searchQuery.value.toLowerCase();
 
-    if (cans.isNotEmpty) {
-      // Filter cans tables by account name
-      filteredCans.assignAll(
-        cans
-            .where(
-              (can) =>
-                  can.accountName.toLowerCase().contains(query) ||
-                  (can.accountId?.toString().contains(query) ?? false),
-            )
-            .toList(),
-      );
-    }
+    // Remove the unnecessary condition
+    filteredCans.assignAll(
+      cans
+          .where(
+            (can) =>
+                can.accountName.toLowerCase().contains(query) ||
+                (can.accountId?.toString().contains(query) ?? false),
+          )
+          .toList(),
+    );
   }
 
   Future<void> addCansTable(Cans cans) async {
@@ -80,8 +78,10 @@ class CansController extends GetxController {
   Future<void> deleteCansTable(int id) async {
     try {
       await repository.deleteCans(id);
+      // Remove from both lists
       cans.removeWhere((c) => c.id == id);
-      _applyFilters();
+      filteredCans.removeWhere((c) => c.id == id);
+      // No need to call _applyFilters() since we've manually updated filteredCans
       Get.snackbar('Success', 'Cans table deleted successfully');
     } catch (e) {
       Get.snackbar('Error', 'Failed to delete cans table: $e');

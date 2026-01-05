@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/features/sales_invoicing/invoice_generator.dart';
+import 'package:ledger_master/features/vendor_ledger/vendor_ledger_repository.dart';
 import 'package:ledger_master/main.dart';
 import 'package:ledger_master/shared/components/constants.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
@@ -878,844 +879,6 @@ class ItemList extends StatelessWidget {
   }
 }
 
-// class ItemAddEdit extends StatelessWidget {
-//   final Item? item;
-//   const ItemAddEdit({super.key, this.item});
-
-//   @override
-//   Widget build(BuildContext context) {
-//     final itemController = Get.find<ItemController>();
-//     final custController = Get.find<CustomerController>();
-//     final isDesktop = MediaQuery.of(context).size.width > 800;
-//     final isEditing = item != null;
-
-//     if (isEditing) {
-//       itemController.loadItem(item: item!);
-//     }
-
-//     Widget buildTextField({
-//       required TextEditingController textController,
-//       required String label,
-//       TextInputType keyboardType = TextInputType.text,
-//       String? Function(String?)? validator,
-//       bool readOnly = false,
-//       List<TextInputFormatter>? inputFormatters,
-//       String? suffixText,
-//       FocusNode? focusNode,
-//       FocusNode? nextFocus,
-//     }) {
-//       return TextFormField(
-//         controller: textController,
-//         focusNode: focusNode,
-//         decoration: InputDecoration(
-//           labelText: label,
-//           labelStyle: Theme.of(context).textTheme.bodyMedium!.copyWith(
-//             color: Theme.of(
-//               context,
-//             ).colorScheme.onSurface.withValues(alpha: 0.8),
-//           ),
-//           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-//           errorStyle: TextStyle(
-//             color: Theme.of(context).colorScheme.error,
-//             fontSize: Theme.of(context).textTheme.bodySmall!.fontSize,
-//           ),
-//           suffixText: suffixText,
-//         ),
-//         style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-//           color: Theme.of(context).colorScheme.onSurface,
-//         ),
-//         keyboardType: keyboardType,
-//         validator: validator,
-//         readOnly: readOnly,
-//         inputFormatters: inputFormatters,
-//         textInputAction: nextFocus != null
-//             ? TextInputAction.next
-//             : TextInputAction.done,
-//         onEditingComplete: nextFocus != null
-//             ? () => nextFocus.requestFocus()
-//             : null,
-//         onChanged: (value) {
-//           if (keyboardType == TextInputType.text &&
-//               textController == itemController.nameController) {
-//             textController.value = textController.value.copyWith(
-//               text: value.toUpperCase(),
-//               selection: TextSelection.collapsed(offset: value.length),
-//             );
-//           }
-//         },
-//       );
-//     }
-
-//     final nameFocus = FocusNode();
-//     final typeFocus = FocusNode();
-//     final pricePerKgFocus = FocusNode();
-//     final custVendFocus = FocusNode();
-//     final canWeightFocus = FocusNode();
-//     final costPriceFocus = FocusNode();
-//     final sellingPriceFocus = FocusNode();
-//     final stockFocus = FocusNode();
-//     custController.fetchCustomers();
-
-//     return BaseLayout(
-//       showBackButton: true,
-//       appBarTitle: item == null ? 'Add Item' : 'Edit Item',
-//       onBackButtonPressed: () {
-//           NavigationHelper.pushReplacement(
-//             context,
-//             LedgerTablePage(ledger: ledger, customer: customer),
-//           );
-//         },
-//       child: Padding(
-//         padding: const EdgeInsets.all(16),
-//         child: Form(
-//           key: itemController.formKey,
-//           child: SingleChildScrollView(
-//             child: Column(
-//               crossAxisAlignment: CrossAxisAlignment.start,
-//               mainAxisSize: MainAxisSize.min,
-//               children: [
-//                 Text(
-//                   'Item Details',
-//                   style: Theme.of(context).textTheme.displayLarge!.copyWith(
-//                     color: Theme.of(
-//                       context,
-//                     ).colorScheme.onSurface.withValues(alpha: 0.8),
-//                   ),
-//                 ),
-//                 const SizedBox(height: 16),
-//                 Card(
-//                   elevation: 4,
-//                   shape: RoundedRectangleBorder(
-//                     borderRadius: BorderRadius.circular(4),
-//                   ),
-//                   child: Container(
-//                     padding: const EdgeInsets.all(16),
-//                     decoration: BoxDecoration(
-//                       borderRadius: BorderRadius.circular(4),
-//                       gradient: LinearGradient(
-//                         colors: [
-//                           Theme.of(
-//                             context,
-//                           ).colorScheme.primary.withValues(alpha: 0.2),
-//                           (Theme.of(context).cardTheme.color ??
-//                               Theme.of(context).colorScheme.surface),
-//                         ],
-//                         begin: Alignment.topLeft,
-//                         end: Alignment.bottomRight,
-//                       ),
-//                       boxShadow: [
-//                         BoxShadow(
-//                           color: Theme.of(
-//                             context,
-//                           ).colorScheme.onSurface.withValues(alpha: 0.2),
-//                           blurRadius: 8,
-//                           offset: const Offset(2, 2),
-//                         ),
-//                       ],
-//                     ),
-//                     child: isDesktop
-//                         ? Column(
-//                             mainAxisSize: MainAxisSize.min,
-//                             children: [
-//                               Row(
-//                                 crossAxisAlignment: CrossAxisAlignment.start,
-//                                 children: [
-//                                   Expanded(
-//                                     child: Obx(() {
-//                                       final selectedValue = itemController
-//                                           .selectedCustOrVend
-//                                           .value;
-//                                       final customers = custController
-//                                           .filteredCustomers
-//                                           .where(
-//                                             (cust) => cust.customerNo
-//                                                 .toString()
-//                                                 .contains('VEN'),
-//                                           )
-//                                           .toList();
-//                                       final isValidVendor =
-//                                           isEditing &&
-//                                           item!.vendor.isNotEmpty &&
-//                                           customers.any(
-//                                             (customer) =>
-//                                                 customer.name == item!.vendor,
-//                                           );
-
-//                                       return isEditing && !isValidVendor
-//                                           ? buildTextField(
-//                                               textController:
-//                                                   TextEditingController(
-//                                                     text: item!.vendor,
-//                                                   ),
-//                                               label: 'Vendor',
-//                                               readOnly: true,
-//                                               focusNode: custVendFocus,
-//                                               nextFocus: nameFocus,
-//                                             )
-//                                           : DropdownButtonFormField<String>(
-//                                               initialValue:
-//                                                   selectedValue.isNotEmpty &&
-//                                                       customers.any(
-//                                                         (customer) =>
-//                                                             customer.name ==
-//                                                             selectedValue,
-//                                                       )
-//                                                   ? selectedValue
-//                                                   : null,
-//                                               focusNode: custVendFocus,
-//                                               items: [
-//                                                 DropdownMenuItem(
-//                                                   value: null,
-//                                                   child: Text(
-//                                                     'Select Vendor',
-//                                                     style: Theme.of(context)
-//                                                         .textTheme
-//                                                         .bodySmall!
-//                                                         .copyWith(
-//                                                           color: Theme.of(context)
-//                                                               .colorScheme
-//                                                               .onSurfaceVariant,
-//                                                         ),
-//                                                   ),
-//                                                 ),
-//                                                 ...customers.map(
-//                                                   (
-//                                                     customer,
-//                                                   ) => DropdownMenuItem(
-//                                                     value: customer.name,
-//                                                     child: Text(
-//                                                       customer.name
-//                                                           .toUpperCase(),
-//                                                       style: Theme.of(context)
-//                                                           .textTheme
-//                                                           .bodySmall!
-//                                                           .copyWith(
-//                                                             color:
-//                                                                 Theme.of(
-//                                                                       context,
-//                                                                     )
-//                                                                     .colorScheme
-//                                                                     .onSurface,
-//                                                           ),
-//                                                     ),
-//                                                   ),
-//                                                 ),
-//                                               ],
-//                                               onChanged: (value) {
-//                                                 itemController
-//                                                         .selectedCustOrVend
-//                                                         .value =
-//                                                     value ?? '';
-//                                                 FocusScope.of(
-//                                                   context,
-//                                                 ).requestFocus(nameFocus);
-//                                               },
-//                                               decoration: InputDecoration(
-//                                                 labelText: 'Vendor',
-//                                                 labelStyle: Theme.of(context)
-//                                                     .textTheme
-//                                                     .bodyMedium!
-//                                                     .copyWith(
-//                                                       color: Theme.of(context)
-//                                                           .colorScheme
-//                                                           .onSurface
-//                                                           .withValues(
-//                                                             alpha: 0.8,
-//                                                           ),
-//                                                     ),
-//                                                 border: OutlineInputBorder(
-//                                                   borderRadius:
-//                                                       BorderRadius.circular(8),
-//                                                 ),
-//                                                 errorStyle: TextStyle(
-//                                                   color: Theme.of(
-//                                                     context,
-//                                                   ).colorScheme.error,
-//                                                   fontSize: Theme.of(context)
-//                                                       .textTheme
-//                                                       .bodySmall!
-//                                                       .fontSize,
-//                                                 ),
-//                                                 contentPadding:
-//                                                     const EdgeInsets.symmetric(
-//                                                       horizontal: 12,
-//                                                       vertical: 16,
-//                                                     ),
-//                                               ),
-//                                             );
-//                                     }),
-//                                   ),
-//                                   const SizedBox(width: 16),
-//                                   Expanded(
-//                                     child: buildTextField(
-//                                       textController:
-//                                           itemController.nameController,
-//                                       label: 'Item Name',
-//                                       focusNode: nameFocus,
-//                                       nextFocus: typeFocus,
-//                                       validator: (value) {
-//                                         if (value == null || value.isEmpty) {
-//                                           return 'Please enter item name';
-//                                         }
-//                                         return null;
-//                                       },
-//                                     ),
-//                                   ),
-//                                 ],
-//                               ),
-//                               const SizedBox(height: 16),
-//                               Row(
-//                                 crossAxisAlignment: CrossAxisAlignment.start,
-//                                 children: [
-//                                   Expanded(
-//                                     child: Obx(
-//                                       () => DropdownButtonFormField<String>(
-//                                         initialValue:
-//                                             itemController.selectedType.value,
-//                                         focusNode: typeFocus,
-//                                         items: const [
-//                                           DropdownMenuItem(
-//                                             value: 'powder',
-//                                             child: Text('Powder (kg)'),
-//                                           ),
-//                                           DropdownMenuItem(
-//                                             value: 'liquid',
-//                                             child: Text('Liquid (L)'),
-//                                           ),
-//                                         ],
-//                                         onChanged: (value) {
-//                                           itemController.selectedType.value =
-//                                               value!;
-//                                           FocusScope.of(
-//                                             context,
-//                                           ).requestFocus(pricePerKgFocus);
-//                                         },
-//                                         decoration: InputDecoration(
-//                                           labelText: 'Item Type',
-//                                           labelStyle: Theme.of(context)
-//                                               .textTheme
-//                                               .bodyMedium!
-//                                               .copyWith(
-//                                                 color: Theme.of(context)
-//                                                     .colorScheme
-//                                                     .onSurface
-//                                                     .withValues(alpha: 0.8),
-//                                               ),
-//                                           border: OutlineInputBorder(
-//                                             borderRadius: BorderRadius.circular(
-//                                               8,
-//                                             ),
-//                                           ),
-//                                           errorStyle: TextStyle(
-//                                             color: Theme.of(
-//                                               context,
-//                                             ).colorScheme.error,
-//                                             fontSize: Theme.of(
-//                                               context,
-//                                             ).textTheme.bodySmall!.fontSize,
-//                                           ),
-//                                           contentPadding:
-//                                               const EdgeInsets.symmetric(
-//                                                 horizontal: 12,
-//                                                 vertical: 16,
-//                                               ),
-//                                         ),
-//                                       ),
-//                                     ),
-//                                   ),
-//                                   const SizedBox(width: 16),
-//                                   Expanded(
-//                                     child: buildTextField(
-//                                       textController:
-//                                           itemController.pricePerKgController,
-//                                       label: 'Price Per Kg/L',
-//                                       keyboardType:
-//                                           TextInputType.numberWithOptions(
-//                                             decimal: true,
-//                                           ),
-//                                       focusNode: pricePerKgFocus,
-//                                       nextFocus: canWeightFocus,
-//                                       validator: (value) {
-//                                         if (value == null || value.isEmpty) {
-//                                           return 'Please enter price per kg/L';
-//                                         }
-//                                         if (double.tryParse(value) == null) {
-//                                           return 'Please enter a valid number';
-//                                         }
-//                                         return null;
-//                                       },
-//                                       inputFormatters: [
-//                                         FilteringTextInputFormatter.allow(
-//                                           RegExp(r'^\d*\.?\d*$'),
-//                                         ),
-//                                       ],
-//                                     ),
-//                                   ),
-//                                 ],
-//                               ),
-//                               const SizedBox(height: 16),
-//                               Row(
-//                                 crossAxisAlignment: CrossAxisAlignment.start,
-//                                 children: [
-//                                   Expanded(
-//                                     child: buildTextField(
-//                                       textController:
-//                                           itemController.canWeightController,
-//                                       label: 'Can Weight',
-//                                       keyboardType:
-//                                           TextInputType.numberWithOptions(
-//                                             decimal: true,
-//                                           ),
-//                                       focusNode: canWeightFocus,
-//                                       nextFocus: costPriceFocus,
-//                                       suffixText:
-//                                           itemController.weightUnit.value,
-//                                       validator: (value) {
-//                                         if (value == null || value.isEmpty) {
-//                                           return 'Please enter can weight';
-//                                         }
-//                                         if (double.tryParse(value) == null) {
-//                                           return 'Please enter a valid number';
-//                                         }
-//                                         return null;
-//                                       },
-//                                       inputFormatters: [
-//                                         FilteringTextInputFormatter.allow(
-//                                           RegExp(r'^\d*\.?\d*$'),
-//                                         ),
-//                                       ],
-//                                     ),
-//                                   ),
-//                                   const SizedBox(width: 16),
-//                                   Expanded(
-//                                     child: buildTextField(
-//                                       textController:
-//                                           itemController.costPriceController,
-//                                       label: 'Cost Price/Can',
-//                                       keyboardType:
-//                                           TextInputType.numberWithOptions(
-//                                             decimal: true,
-//                                           ),
-//                                       focusNode: costPriceFocus,
-//                                       nextFocus: sellingPriceFocus,
-//                                       validator: (value) {
-//                                         if (value == null || value.isEmpty) {
-//                                           return 'Please enter cost price per can';
-//                                         }
-//                                         if (double.tryParse(value) == null) {
-//                                           return 'Please enter a valid number';
-//                                         }
-//                                         return null;
-//                                       },
-//                                       inputFormatters: [
-//                                         FilteringTextInputFormatter.allow(
-//                                           RegExp(r'^\d*\.?\d*$'),
-//                                         ),
-//                                       ],
-//                                     ),
-//                                   ),
-//                                 ],
-//                               ),
-//                               const SizedBox(height: 16),
-//                               Row(
-//                                 crossAxisAlignment: CrossAxisAlignment.start,
-//                                 children: [
-//                                   Expanded(
-//                                     child: buildTextField(
-//                                       textController:
-//                                           itemController.sellingPriceController,
-//                                       label: 'Selling Price/Can',
-//                                       keyboardType:
-//                                           TextInputType.numberWithOptions(
-//                                             decimal: true,
-//                                           ),
-//                                       focusNode: sellingPriceFocus,
-//                                       nextFocus: stockFocus,
-//                                       readOnly: true,
-//                                       validator: (value) {
-//                                         if (value == null || value.isEmpty) {
-//                                           return 'Selling price is required';
-//                                         }
-//                                         return null;
-//                                       },
-//                                     ),
-//                                   ),
-//                                   const SizedBox(width: 16),
-//                                   Expanded(
-//                                     child: buildTextField(
-//                                       textController: itemController
-//                                           .availableStockController,
-//                                       label: 'Stock',
-//                                       keyboardType:
-//                                           TextInputType.numberWithOptions(
-//                                             decimal: true,
-//                                           ),
-//                                       focusNode: stockFocus,
-//                                       suffixText:
-//                                           itemController.weightUnit.value,
-//                                       validator: (value) {
-//                                         if (value == null || value.isEmpty) {
-//                                           return 'Please enter available stock';
-//                                         }
-//                                         if (double.tryParse(value) == null) {
-//                                           return 'Please enter a valid number';
-//                                         }
-//                                         return null;
-//                                       },
-//                                       inputFormatters: [
-//                                         FilteringTextInputFormatter.allow(
-//                                           RegExp(r'^\d*\.?\d*$'),
-//                                         ),
-//                                       ],
-//                                     ),
-//                                   ),
-//                                 ],
-//                               ),
-//                             ],
-//                           )
-//                         : Column(
-//                             mainAxisSize: MainAxisSize.min,
-//                             children: [
-//                               Obx(() {
-//                                 final selectedValue =
-//                                     itemController.selectedCustOrVend.value;
-//                                 final customers =
-//                                     custController.filteredCustomers;
-//                                 final isValidVendor =
-//                                     isEditing &&
-//                                     item!.vendor.isNotEmpty &&
-//                                     customers.any(
-//                                       (customer) =>
-//                                           customer.name == item!.vendor,
-//                                     );
-
-//                                 return isEditing && !isValidVendor
-//                                     ? buildTextField(
-//                                         textController: TextEditingController(
-//                                           text: item!.vendor,
-//                                         ),
-//                                         label: 'Vendor',
-//                                         readOnly: true,
-//                                         focusNode: custVendFocus,
-//                                         nextFocus: nameFocus,
-//                                       )
-//                                     : DropdownButtonFormField<String>(
-//                                         initialValue:
-//                                             selectedValue.isNotEmpty &&
-//                                                 customers.any(
-//                                                   (customer) =>
-//                                                       customer.name ==
-//                                                       selectedValue,
-//                                                 )
-//                                             ? selectedValue
-//                                             : null,
-//                                         focusNode: custVendFocus,
-//                                         items: [
-//                                           DropdownMenuItem(
-//                                             value: null,
-//                                             child: Text(
-//                                               'Select Vendor',
-//                                               style: Theme.of(context)
-//                                                   .textTheme
-//                                                   .bodySmall!
-//                                                   .copyWith(
-//                                                     color: Theme.of(context)
-//                                                         .colorScheme
-//                                                         .onSurfaceVariant,
-//                                                   ),
-//                                             ),
-//                                           ),
-//                                           ...customers.map(
-//                                             (customer) => DropdownMenuItem(
-//                                               value: customer.name,
-//                                               child: Text(
-//                                                 customer.name.toUpperCase(),
-//                                                 style: Theme.of(context)
-//                                                     .textTheme
-//                                                     .bodySmall!
-//                                                     .copyWith(
-//                                                       color: Theme.of(
-//                                                         context,
-//                                                       ).colorScheme.onSurface,
-//                                                     ),
-//                                               ),
-//                                             ),
-//                                           ),
-//                                         ],
-//                                         onChanged: (value) {
-//                                           itemController
-//                                                   .selectedCustOrVend
-//                                                   .value =
-//                                               value ?? '';
-//                                           FocusScope.of(
-//                                             context,
-//                                           ).requestFocus(nameFocus);
-//                                         },
-//                                         decoration: InputDecoration(
-//                                           labelText: 'Vendor',
-//                                           labelStyle: Theme.of(context)
-//                                               .textTheme
-//                                               .bodyMedium!
-//                                               .copyWith(
-//                                                 color: Theme.of(context)
-//                                                     .colorScheme
-//                                                     .onSurface
-//                                                     .withValues(alpha: 0.8),
-//                                               ),
-//                                           border: OutlineInputBorder(
-//                                             borderRadius: BorderRadius.circular(
-//                                               8,
-//                                             ),
-//                                           ),
-//                                           errorStyle: TextStyle(
-//                                             color: Theme.of(
-//                                               context,
-//                                             ).colorScheme.error,
-//                                             fontSize: Theme.of(
-//                                               context,
-//                                             ).textTheme.bodySmall!.fontSize,
-//                                           ),
-//                                           contentPadding:
-//                                               const EdgeInsets.symmetric(
-//                                                 horizontal: 12,
-//                                                 vertical: 16,
-//                                               ),
-//                                         ),
-//                                       );
-//                               }),
-//                               const SizedBox(height: 16),
-//                               buildTextField(
-//                                 textController: itemController.nameController,
-//                                 label: 'Item Name',
-//                                 focusNode: nameFocus,
-//                                 nextFocus: typeFocus,
-//                                 validator: (value) {
-//                                   if (value == null || value.isEmpty) {
-//                                     return 'Please enter item name';
-//                                   }
-//                                   return null;
-//                                 },
-//                               ),
-//                               const SizedBox(height: 16),
-//                               Obx(
-//                                 () => DropdownButtonFormField<String>(
-//                                   initialValue:
-//                                       itemController.selectedType.value,
-//                                   focusNode: typeFocus,
-//                                   items: const [
-//                                     DropdownMenuItem(
-//                                       value: 'powder',
-//                                       child: Text('Powder (kg)'),
-//                                     ),
-//                                     DropdownMenuItem(
-//                                       value: 'liquid',
-//                                       child: Text('Liquid (L)'),
-//                                     ),
-//                                   ],
-//                                   onChanged: (value) {
-//                                     itemController.selectedType.value = value!;
-//                                     FocusScope.of(
-//                                       context,
-//                                     ).requestFocus(pricePerKgFocus);
-//                                   },
-//                                   decoration: InputDecoration(
-//                                     labelText: 'Item Type',
-//                                     labelStyle: Theme.of(context)
-//                                         .textTheme
-//                                         .bodyMedium!
-//                                         .copyWith(
-//                                           color: Theme.of(context)
-//                                               .colorScheme
-//                                               .onSurface
-//                                               .withValues(alpha: 0.8),
-//                                         ),
-//                                     border: OutlineInputBorder(
-//                                       borderRadius: BorderRadius.circular(8),
-//                                     ),
-//                                     errorStyle: TextStyle(
-//                                       color: Theme.of(
-//                                         context,
-//                                       ).colorScheme.error,
-//                                       fontSize: Theme.of(
-//                                         context,
-//                                       ).textTheme.bodySmall!.fontSize,
-//                                     ),
-//                                     contentPadding: const EdgeInsets.symmetric(
-//                                       horizontal: 12,
-//                                       vertical: 16,
-//                                     ),
-//                                   ),
-//                                 ),
-//                               ),
-//                               const SizedBox(height: 16),
-//                               buildTextField(
-//                                 textController:
-//                                     itemController.pricePerKgController,
-//                                 label: 'Price Per Kg/L',
-//                                 keyboardType: TextInputType.numberWithOptions(
-//                                   decimal: true,
-//                                 ),
-//                                 focusNode: pricePerKgFocus,
-//                                 nextFocus: canWeightFocus,
-//                                 validator: (value) {
-//                                   if (value == null || value.isEmpty) {
-//                                     return 'Please enter price per kg/L';
-//                                   }
-//                                   if (double.tryParse(value) == null) {
-//                                     return 'Please enter a valid number';
-//                                   }
-//                                   return null;
-//                                 },
-//                                 inputFormatters: [
-//                                   FilteringTextInputFormatter.allow(
-//                                     RegExp(r'^\d*\.?\d*$'),
-//                                   ),
-//                                 ],
-//                               ),
-//                               const SizedBox(height: 16),
-//                               buildTextField(
-//                                 textController:
-//                                     itemController.canWeightController,
-//                                 label: 'Can Weight',
-//                                 keyboardType: TextInputType.numberWithOptions(
-//                                   decimal: true,
-//                                 ),
-//                                 focusNode: canWeightFocus,
-//                                 nextFocus: costPriceFocus,
-//                                 suffixText: itemController.weightUnit.value,
-//                                 validator: (value) {
-//                                   if (value == null || value.isEmpty) {
-//                                     return 'Please enter can weight';
-//                                   }
-//                                   if (double.tryParse(value) == null) {
-//                                     return 'Please enter a valid number';
-//                                   }
-//                                   return null;
-//                                 },
-//                                 inputFormatters: [
-//                                   FilteringTextInputFormatter.allow(
-//                                     RegExp(r'^\d*\.?\d*$'),
-//                                   ),
-//                                 ],
-//                               ),
-//                               const SizedBox(height: 16),
-//                               buildTextField(
-//                                 textController:
-//                                     itemController.costPriceController,
-//                                 label: 'Cost Price/Can',
-//                                 keyboardType: TextInputType.numberWithOptions(
-//                                   decimal: true,
-//                                 ),
-//                                 focusNode: costPriceFocus,
-//                                 nextFocus: sellingPriceFocus,
-//                                 validator: (value) {
-//                                   if (value == null || value.isEmpty) {
-//                                     return 'Please enter cost price per can';
-//                                   }
-//                                   if (double.tryParse(value) == null) {
-//                                     return 'Please enter a valid number';
-//                                   }
-//                                   return null;
-//                                 },
-//                                 inputFormatters: [
-//                                   FilteringTextInputFormatter.allow(
-//                                     RegExp(r'^\d*\.?\d*$'),
-//                                   ),
-//                                 ],
-//                               ),
-//                               const SizedBox(height: 16),
-//                               buildTextField(
-//                                 textController:
-//                                     itemController.sellingPriceController,
-//                                 label: 'Selling Price/Can',
-//                                 keyboardType: TextInputType.numberWithOptions(
-//                                   decimal: true,
-//                                 ),
-//                                 focusNode: sellingPriceFocus,
-//                                 nextFocus: stockFocus,
-//                                 readOnly: true,
-//                                 validator: (value) {
-//                                   if (value == null || value.isEmpty) {
-//                                     return 'Selling price is required';
-//                                   }
-//                                   return null;
-//                                 },
-//                               ),
-//                               const SizedBox(height: 16),
-//                               buildTextField(
-//                                 textController:
-//                                     itemController.availableStockController,
-//                                 label: 'Stock',
-//                                 keyboardType: TextInputType.numberWithOptions(
-//                                   decimal: true,
-//                                 ),
-//                                 focusNode: stockFocus,
-//                                 suffixText: itemController.weightUnit.value,
-//                                 validator: (value) {
-//                                   if (value == null || value.isEmpty) {
-//                                     return 'Please enter available stock';
-//                                   }
-//                                   if (double.tryParse(value) == null) {
-//                                     return 'Please enter a valid number';
-//                                   }
-//                                   return null;
-//                                 },
-//                                 inputFormatters: [
-//                                   FilteringTextInputFormatter.allow(
-//                                     RegExp(r'^\d*\.?\d*$'),
-//                                   ),
-//                                 ],
-//                               ),
-//                             ],
-//                           ),
-//                   ),
-//                 ),
-//                 const SizedBox(height: 24),
-//                 Row(
-//                   mainAxisAlignment: MainAxisAlignment.end,
-//                   children: [
-//                     TextButton(
-//                       onPressed: () {
-//                         itemController.clearForm();
-//                         Navigator.pop(context);
-//                       },
-//                       child: Text(
-//                         'Cancel',
-//                         style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-//                           color: Theme.of(
-//                             context,
-//                           ).colorScheme.onSurface.withValues(alpha: 0.8),
-//                         ),
-//                       ),
-//                     ),
-//                     const SizedBox(width: 16),
-//                     ElevatedButton(
-//                       onPressed: () => itemController.saveItem(context),
-//                       style: ElevatedButton.styleFrom(
-//                         backgroundColor: Theme.of(context).colorScheme.primary,
-//                         foregroundColor: Theme.of(
-//                           context,
-//                         ).colorScheme.onPrimary,
-//                         shape: RoundedRectangleBorder(
-//                           borderRadius: BorderRadius.circular(8),
-//                         ),
-//                       ),
-//                       child: Text(
-//                         'Save',
-//                         style: Theme.of(context).textTheme.bodyMedium,
-//                       ),
-//                     ),
-//                   ],
-//                 ),
-//               ],
-//             ),
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-// }
-
 class LedgerTablePage extends StatelessWidget {
   final Item item;
   final String vendorName;
@@ -2025,18 +1188,13 @@ class LedgerTablePage extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  totalBox("Opening Bal", controller.openingBalance, context),
+                  const SizedBox(width: 16),
                   totalBox("Total Debit", controller.totalDebit, context),
                   const SizedBox(width: 16),
                   totalBox("Total Credit", controller.totalCredit, context),
                   const SizedBox(width: 16),
-                  totalBox(
-                    "Net Balance",
-                    (controller.totalCredit - controller.totalDebit).clamp(
-                      0,
-                      double.infinity,
-                    ),
-                    context,
-                  ),
+                  totalBox("Net Balance", controller.netBalance, context),
                 ],
               ),
             ),
@@ -2397,6 +1555,8 @@ class ItemLedgerTableController extends GetxController {
   final repo = InventoryRepository();
   Rx<Item?> currentItem = Rx<Item?>(null);
 
+  var openingBalance = 0.0;
+
   @override
   void onInit() {
     super.onInit();
@@ -2427,6 +1587,12 @@ class ItemLedgerTableController extends GetxController {
       final ledgerId =
           ledgerNo ?? "${currentItem.value!.name}_${currentItem.value!.id}";
       final itemLedgerEntries = await repo.getItemLedgerEntries(ledgerId);
+
+      // For item ledger, opening balance is always 0
+      // The vendor's actual opening balance is shown in the Vendor Ledger Table
+      // Item ledger only tracks transactions for this specific item
+      openingBalance = 0.0;
+
       final fromDateValue = DateTime(
         fromDate.value.year,
         fromDate.value.month,
@@ -2472,9 +1638,10 @@ class ItemLedgerTableController extends GetxController {
         return (a.id ?? 0).compareTo(b.id ?? 0);
       });
 
-      double runningBalance = 0;
+      double runningBalance = 0.0;
       for (var entry in filtered) {
         runningBalance += entry.credit;
+        runningBalance -= entry.debit;
         entry.balance = runningBalance;
       }
 
@@ -2763,8 +1930,8 @@ class ItemLedgerEntryAddEdit extends StatelessWidget {
                                     focusNode:
                                         controller.unitPriceControllerFocusNode,
                                     label: item.type.toLowerCase() == 'powder'
-                                        ? 'Price/kg'
-                                        : 'Price/L',
+                                        ? 'Selling Price/kg'
+                                        : 'Selling Price/L',
                                     readOnly: false,
                                     keyboardType:
                                         const TextInputType.numberWithOptions(
@@ -3505,11 +2672,13 @@ class ItemLedgerEntryController extends GetxController {
     _isUpdatingCredit = true;
 
     final qty = double.tryParse(itemWeightCurrent.text) ?? 0.0;
-    final unitPrice = double.tryParse(unitPriceController.text) ?? 0.0;
-    final amount = qty * unitPrice;
+    // Use selling price per unit (unitPriceController) not cost price
+    final sellingPricePerUnit =
+        double.tryParse(unitPriceController.text) ?? 0.0;
+    final amount = qty * sellingPricePerUnit;
 
     debugPrint(
-      "   Calculated: qty=$qty × unitPrice=$unitPrice = amount=$amount",
+      "   Calculated: qty=$qty × sellingPricePerUnit=$sellingPricePerUnit = amount=$amount",
     );
 
     if (transactionType.value == "Debit") {
@@ -3898,17 +3067,34 @@ class ItemLedgerEntryController extends GetxController {
       );
       debugPrint("   📊 updateItemStock() result: $stockResult");
 
-      // Update vendor ledger
-      final amount = entry.transactionType == "Credit" ? credit : debit;
+      // Sync to vendor ledger - ONLY Credit transactions (incoming goods/purchases)
+      // Debit transactions (sales/outgoing) are NOT synced to vendor ledger
+      if (entry.transactionType == "Credit") {
+        try {
+          final vendorRepo = VendorLedgerRepository();
+          final customerRepo = CustomerRepository();
 
-      await repo.updateVendorLedger(
-        vendorName: currentItem!.vendor,
-        transactionType: entry.transactionType,
-        amount: amount,
-        voucherNo: entry.voucherNo,
-        date: entry.createdAt,
-      );
-      debugPrint("   ✅ Vendor ledger updated");
+          // Get vendor info
+          final vendor = await customerRepo.getCustomerByName(
+            currentItem!.vendor,
+          );
+          if (vendor != null) {
+            await vendorRepo.syncItemLedgerToVendorLedger(
+              vendorName: currentItem!.vendor,
+              vendorId: vendor.id!,
+              voucherNo: entry.voucherNo,
+              transactionType: "Credit",
+              amount: credit,
+              date: entry.createdAt,
+            );
+            debugPrint('   ✅ Vendor ledger synced with Credit transaction');
+          }
+        } catch (e) {
+          debugPrint('   ⚠️ Could not sync to vendor ledger: $e');
+        }
+      } else {
+        debugPrint('   ℹ️ Debit transaction - not synced to vendor ledger');
+      }
 
       final updatedItem = await repo.getItemById(itemId);
       debugPrint("\n   🔍 Updated item after stock change:");

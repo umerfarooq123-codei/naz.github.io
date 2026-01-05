@@ -432,11 +432,11 @@ class ReceiptPdfGenerator {
               normalStyle: normalStyle,
             ),
             buildTableCell(
-              formatNumber(data.receivedCans),
+              '', // Leave blank - to be filled by receiver
               normalStyle: normalStyle,
             ),
             buildTableCell(
-              formatNumber(data.balanceCans),
+              '', // Leave blank - to be filled by receiver
               normalStyle: normalStyle,
             ),
           ],

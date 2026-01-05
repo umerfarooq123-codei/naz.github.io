@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:ledger_master/core/database/db_helper.dart';
 import 'package:ledger_master/core/models/customer.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/features/vendor_ledger/vendor_ledger_repository.dart';
@@ -8,6 +9,7 @@ import 'package:ledger_master/features/vendor_ledger/vendor_ledger_repository.da
 class VendorLedgerTableController extends GetxController {
   final repo = VendorLedgerRepository();
   final customerRepo = CustomerRepository();
+  final _dbHelper = DBHelper();
 
   final currentVendor = Rx<Customer?>(null);
   final vendorLedgerEntries = <VendorLedgerEntry>[].obs;
@@ -30,6 +32,8 @@ class VendorLedgerTableController extends GetxController {
   final RxDouble rxNetBalance = 0.0.obs;
 
   var openingBalance = 0.0;
+  var itemLedgerCredits = 0.0;
+  var itemLedgerDebits = 0.0;
   Customer? vendor;
 
   @override
@@ -75,15 +79,30 @@ class VendorLedgerTableController extends GetxController {
     isLoading.value = true;
     try {
       final vendor = currentVendor.value!;
+      debugPrint('\n=== INITIALIZING VENDOR FILTERS ===');
+      debugPrint('Vendor: ${vendor.name} (ID: ${vendor.id})');
 
       // Fetch opening balance for vendor
       openingBalance = await customerRepo.getOpeningBalanceForCustomer(
         vendor.name,
       );
+      debugPrint('📊 Opening Balance: $openingBalance');
+
+      // Fetch item ledger credits (purchases from vendor) for this vendor
+      itemLedgerCredits = await getItemLedgerCredits(vendor.name);
+      debugPrint('✅ Item Ledger Credits: $itemLedgerCredits');
 
       await loadVendorLedgerEntries(vendor.name, vendor.id!);
+      debugPrint(
+        '📝 Vendor Ledger Entries loaded: ${vendorLedgerEntries.length}',
+      );
+
       _applyFilters();
+      debugPrint('🔍 Filtered Entries: ${filteredVendorEntries.length}');
+
       updateReactiveTotals();
+      debugPrint('📈 Updated Reactive Totals');
+      debugPrint('=== INITIALIZATION COMPLETE ===\n');
     } catch (e) {
       debugPrint('Error initializing vendor filters: $e');
     } finally {
@@ -158,28 +177,68 @@ class VendorLedgerTableController extends GetxController {
     }).toList();
 
     filtered.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+    debugPrint(
+      '🔄 _applyFilters: ${vendorLedgerEntries.length} entries → ${filtered.length} filtered',
+    );
     filteredVendorEntries.assignAll(filtered);
   }
 
   void updateReactiveTotals() {
-    rxTotalDebit.value = totalDebit;
-    rxTotalCredit.value = totalCredit;
-    rxNetBalance.value = netBalance;
+    final td = totalDebit;
+    final tc = totalCredit;
+    final nb = netBalance;
+
+    debugPrint('\n--- Updating Reactive Totals ---');
+    debugPrint('Total Debit: $td');
+    debugPrint('Total Credit: $tc');
+    debugPrint('Net Balance: $nb');
+    debugPrint('---\n');
+
+    rxTotalDebit.value = td;
+    rxTotalCredit.value = tc;
+    rxNetBalance.value = nb;
   }
 
   double get totalDebit {
-    return filteredVendorEntries.fold(0.0, (sum, entry) => sum + entry.debit);
+    // Total debit = vendor ledger debits (payments made to vendor) ONLY
+    // Item ledger debits are for inventory tracking, not vendor payments
+    final vendorDebits = filteredVendorEntries.fold(
+      0.0,
+      (sum, entry) => sum + entry.debit,
+    );
+    debugPrint('💰 TOTAL DEBIT CALCULATION:');
+    debugPrint('  - Vendor Ledger Debits (Payments): $vendorDebits');
+    debugPrint('  - Item Ledger Debits: NOT INCLUDED (inventory only)');
+    debugPrint('  - TOTAL: $vendorDebits');
+    return vendorDebits;
   }
 
   double get totalCredit {
-    return filteredVendorEntries.fold(0.0, (sum, entry) => sum + entry.credit);
+    // Total credit = vendor ledger credits + item ledger credits (purchases from vendor)
+    final vendorCredits = filteredVendorEntries.fold(
+      0.0,
+      (sum, entry) => sum + entry.credit,
+    );
+    final total = vendorCredits + itemLedgerCredits;
+    debugPrint('💳 TOTAL CREDIT CALCULATION:');
+    debugPrint('  - Vendor Ledger Credits: $vendorCredits');
+    debugPrint('  - Item Ledger Credits: $itemLedgerCredits');
+    debugPrint('  - TOTAL: $total');
+    return total;
   }
 
   double get netBalance {
-    return (totalCredit + openingBalance - totalDebit).clamp(
-      0,
-      double.infinity,
-    );
+    // Net balance = Opening balance + Total Credits (amount owed) - Total Debits (payments made)
+    // This represents the remaining amount owed to the vendor after all payments
+    final tc = totalCredit;
+    final td = totalDebit;
+    final balance = (openingBalance + tc - td);
+    debugPrint('⚖️  NET BALANCE CALCULATION:');
+    debugPrint('  - Opening Balance: $openingBalance');
+    debugPrint('  - Total Credit: $tc');
+    debugPrint('  - Total Debit: $td');
+    debugPrint('  - Net: $openingBalance + $tc - $td = $balance');
+    return balance < 0 ? 0 : balance;
   }
 
   Future<void> selectDate(BuildContext context, bool isFromDate) async {
@@ -219,6 +278,104 @@ class VendorLedgerTableController extends GetxController {
       updateReactiveTotals();
     } catch (e) {
       debugPrint('Error deleting vendor ledger entry: $e');
+    }
+  }
+
+  // Get item ledger credits for this vendor (purchases from vendor)
+  Future<double> getItemLedgerCredits(String vendorName) async {
+    try {
+      final db = await _dbHelper.database;
+      debugPrint('🔍 Fetching item ledger CREDITS for vendor: $vendorName');
+
+      // Get all ledger tables for this vendor
+      final tableResult = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'item_ledger_entries_%'",
+      );
+
+      debugPrint('📊 Found ${tableResult.length} item ledger tables');
+      if (tableResult.isEmpty) {
+        debugPrint('⚠️  No item ledger tables found for any vendor');
+        return 0.0;
+      }
+
+      double totalCredit = 0.0;
+
+      // Check each item ledger table for entries from this vendor
+      for (var tableRow in tableResult) {
+        final tableName = tableRow['name'] as String;
+        debugPrint('🔎 Checking table: $tableName');
+
+        final result = await db.rawQuery(
+          '''
+          SELECT COALESCE(SUM(credit), 0) AS totalCredit
+          FROM $tableName
+          WHERE UPPER(vendorName) = UPPER(?) AND transactionType = 'Credit'
+        ''',
+          [vendorName],
+        );
+
+        if (result.isNotEmpty) {
+          final tableCredit =
+              (result.first['totalCredit'] as num?)?.toDouble() ?? 0.0;
+          debugPrint('  ✅ Found $tableCredit credits in $tableName');
+          totalCredit += tableCredit;
+        }
+      }
+
+      debugPrint('✅ Total Item Ledger Credits found: $totalCredit');
+      return totalCredit;
+    } catch (e) {
+      debugPrint('❌ Error getting item ledger credits: $e');
+      return 0.0;
+    }
+  }
+
+  // Get item ledger debits for this vendor (outgoing items)
+  Future<double> getItemLedgerDebits(String vendorName) async {
+    try {
+      final db = await _dbHelper.database;
+      debugPrint('🔍 Fetching item ledger DEBITS for vendor: $vendorName');
+
+      // Get all ledger tables for this vendor
+      final tableResult = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'item_ledger_entries_%'",
+      );
+
+      debugPrint('📊 Found ${tableResult.length} item ledger tables');
+      if (tableResult.isEmpty) {
+        debugPrint('⚠️  No item ledger tables found for any vendor');
+        return 0.0;
+      }
+
+      double totalDebit = 0.0;
+
+      // Check each item ledger table for entries from this vendor
+      for (var tableRow in tableResult) {
+        final tableName = tableRow['name'] as String;
+        debugPrint('🔎 Checking table: $tableName');
+
+        final result = await db.rawQuery(
+          '''
+          SELECT COALESCE(SUM(debit), 0) AS totalDebit
+          FROM $tableName
+          WHERE UPPER(vendorName) = UPPER(?) AND transactionType = 'Debit'
+        ''',
+          [vendorName],
+        );
+
+        if (result.isNotEmpty) {
+          final tableDebit =
+              (result.first['totalDebit'] as num?)?.toDouble() ?? 0.0;
+          debugPrint('  ❌ Found $tableDebit debits in $tableName');
+          totalDebit += tableDebit;
+        }
+      }
+
+      debugPrint('❌ Total Item Ledger Debits found: $totalDebit');
+      return totalDebit;
+    } catch (e) {
+      debugPrint('❌ Error getting item ledger debits: $e');
+      return 0.0;
     }
   }
 

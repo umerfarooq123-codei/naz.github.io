@@ -1,6 +1,8 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'dart:convert';
 
+import 'package:ledger_master/features/sales_invoicing/invoice_generator.dart';
+
 class StockTransaction {
   final int? id;
   final int itemId;
@@ -361,4 +363,11 @@ class TransactionItem {
     required this.balance,
     required this.status,
   });
+}
+
+class SaveLedgerResult {
+  final List<LedgerEntry> ledgerEntries;
+  final List<ReceiptItem> receiptItems;
+
+  SaveLedgerResult({required this.ledgerEntries, required this.receiptItems});
 }

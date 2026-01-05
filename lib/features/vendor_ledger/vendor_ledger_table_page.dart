@@ -753,6 +753,33 @@ class _VendorLedgerEntryAddEditState extends State<VendorLedgerEntryAddEdit> {
     try {
       final amount = double.parse(_amountController.text);
 
+      // Get the controller to calculate proper balance
+      final vendorController = Get.find<VendorLedgerTableController>();
+
+      // Balance calculation: Opening Balance + Total Credits (from item ledger) - Total Debits (payments)
+      // This represents the remaining amount owed to the vendor
+      double totalDebitsAfterSave = vendorController.totalDebit;
+
+      if (isEditMode && widget.entry != null) {
+        // When editing: remove old debit amount and add new debit amount
+        totalDebitsAfterSave =
+            vendorController.totalDebit - widget.entry!.debit;
+        if (_transactionType == 'Debit') {
+          totalDebitsAfterSave += amount;
+        }
+      } else if (!isEditMode) {
+        // When creating new entry
+        if (_transactionType == 'Debit') {
+          totalDebitsAfterSave = vendorController.totalDebit + amount;
+        }
+      }
+
+      double newBalance =
+          vendorController.openingBalance +
+          vendorController.totalCredit -
+          totalDebitsAfterSave;
+      if (newBalance < 0) newBalance = 0.0;
+
       final entry = VendorLedgerEntry(
         id: widget.entry?.id,
         voucherNo: _voucherNoController.text,
@@ -764,7 +791,7 @@ class _VendorLedgerEntryAddEditState extends State<VendorLedgerEntryAddEdit> {
             : null,
         debit: _transactionType == 'Debit' ? amount : 0.0,
         credit: _transactionType == 'Credit' ? amount : 0.0,
-        balance: 0.0,
+        balance: newBalance,
         transactionType: _transactionType,
         paymentMethod: _paymentMethod,
         chequeNo: _paymentMethod == 'Cheque' ? _chequeNoController.text : null,
@@ -784,6 +811,12 @@ class _VendorLedgerEntryAddEditState extends State<VendorLedgerEntryAddEdit> {
       } else {
         await repo.insertVendorLedgerEntry(entry);
       }
+
+      // Reload vendor ledger entries to reflect updated balance
+      await vendorController.loadVendorLedgerEntries(
+        widget.vendor.name,
+        widget.vendor.id!,
+      );
 
       widget.onEntrySaved();
 

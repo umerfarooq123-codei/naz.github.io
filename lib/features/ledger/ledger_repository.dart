@@ -254,4 +254,16 @@ class LedgerRepository {
       return 'VN00'; // fallback
     }
   }
+
+  // In LedgerRepository class - fix the existing method
+  Future<Ledger?> getLedgerByNumber(String ledgerNo) async {
+    final db = await _dbHelper.database;
+    final maps = await db.query(
+      'ledger', // Changed from 'ledgers' to 'ledger' (singular)
+      where: 'ledgerNo = ?',
+      whereArgs: [ledgerNo],
+    );
+    if (maps.isEmpty) return null;
+    return Ledger.fromMap(maps.first);
+  }
 }
