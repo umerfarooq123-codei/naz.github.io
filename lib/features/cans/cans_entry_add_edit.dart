@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:ledger_master/core/models/cans.dart';
+import 'package:ledger_master/core/repositories/cans_repository.dart';
 
 import 'cans_controller.dart';
 
@@ -100,6 +101,15 @@ class _CansEntryAddEditState extends State<CansEntryAddEdit> {
 
   @override
   Widget build(BuildContext context) {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      CansRepository().generateVoucherNoByCanId(widget.cans.id!).then((
+        voucherNo,
+      ) {
+        if (widget.entry == null) {
+          _voucherController.text = voucherNo;
+        }
+      });
+    });
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: LayoutBuilder(

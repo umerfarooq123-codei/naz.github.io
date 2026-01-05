@@ -135,120 +135,108 @@ class _DashboardScreenState extends State<DashboardScreen>
   }) {
     return FadeTransition(
       opacity: _fadeAnimation,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          // themeController.toggleTheme();
-          // isClickable ? NavigationHelper.push(context, ItemList()) : null;
-        },
-        child: Container(
-          height: 100, // Fixed height for consistency
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            gradient: LinearGradient(
-              colors: [
-                color.withValues(alpha: 0.15), // Softer start
-                color.withValues(alpha: 0.05), // Fade to near-transparent
-              ],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.1),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
+      child: Container(
+        height: 100, // Fixed height for consistency
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            colors: [
+              color.withValues(alpha: 0.15), // Softer start
+              color.withValues(alpha: 0.05), // Fade to near-transparent
             ],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Icon at top
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: color.withValues(alpha: 0.25),
-                child: Icon(icon, color: color, size: 24),
+          border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.1),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Icon at top
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: color.withValues(alpha: 0.25),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            // Title
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.7),
+                fontSize: TextSizes.body, // Retain size
               ),
-              // Title
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleSmall!.copyWith(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.7),
-                  fontSize: TextSizes.body, // Retain size
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              // Value(s) - large and bold
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (value is List<Item>)
-                      ...List.generate(value.length, (index) {
-                        final formattedStock = formatter.format(
-                          value[index].availableStock,
-                        );
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            "${value[index].name}: $formattedStock",
-                            style: Theme.of(context).textTheme.displaySmall!
-                                .copyWith(
-                                  color: color,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize:
-                                      TextSizes.heading, // Retain large size
-                                ),
-                          ),
-                        );
-                      })
-                    else ...[
-                      Text(
-                        formatter.format(
-                          value is RxDouble ? value.value : value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            // Value(s) - large and bold
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (value is List<Item>)
+                    ...List.generate(value.length, (index) {
+                      final formattedStock = formatter.format(
+                        value[index].availableStock,
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          "${value[index].name}: $formattedStock",
+                          style: Theme.of(context).textTheme.displaySmall!
+                              .copyWith(
+                                color: color,
+                                fontWeight: FontWeight.w700,
+                                fontSize:
+                                    TextSizes.heading, // Retain large size
+                              ),
                         ),
-                        style: Theme.of(context).textTheme.displaySmall!
-                            .copyWith(
-                              color: color,
-                              fontWeight: FontWeight.w700,
-                              fontSize: TextSizes.heading, // Retain size
-                            ),
+                      );
+                    })
+                  else ...[
+                    Text(
+                      formatter.format(value is RxDouble ? value.value : value),
+                      style: Theme.of(context).textTheme.displaySmall!.copyWith(
+                        color: color,
+                        fontWeight: FontWeight.w700,
+                        fontSize: TextSizes.heading, // Retain size
                       ),
-                      if (title ==
-                          'Inventory Value') // Custom for screenshot example
-                      ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          'WER: 9,000',
-                          style: Theme.of(context).textTheme.bodySmall!
-                              .copyWith(
-                                color: color.withValues(alpha: 0.8),
-                                fontSize: TextSizes.caption,
-                              ),
+                    ),
+                    if (title ==
+                        'Inventory Value') // Custom for screenshot example
+                    ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'WER: 9,000',
+                        style: Theme.of(context).textTheme.bodySmall!.copyWith(
+                          color: color.withValues(alpha: 0.8),
+                          fontSize: TextSizes.caption,
                         ),
-                        Text(
-                          'HYPO: 15,040',
-                          style: Theme.of(context).textTheme.bodySmall!
-                              .copyWith(
-                                color: color.withValues(alpha: 0.8),
-                                fontSize: TextSizes.caption,
-                              ),
+                      ),
+                      Text(
+                        'HYPO: 15,040',
+                        style: Theme.of(context).textTheme.bodySmall!.copyWith(
+                          color: color.withValues(alpha: 0.8),
+                          fontSize: TextSizes.caption,
                         ),
-                      ],
+                      ),
                     ],
                   ],
-                ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -539,7 +527,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
-    ledgerController.getStats();
+    Future.delayed(Duration(seconds: 1), () async {
+      await ledgerController.getStats();
+    });
     return BaseLayout(
       showBackButton: false,
       onBackButtonPressed: null,

@@ -774,4 +774,68 @@ class DBHelper {
       return [];
     }
   }
+
+  Future<void> deleteAllDataFromAllTables({
+    bool preserveStructure = true,
+  }) async {
+    final db = await database;
+
+    try {
+      await db.transaction((txn) async {
+        // First, disable foreign key constraints
+        await txn.execute('PRAGMA foreign_keys = OFF');
+
+        // Get all user tables (exclude system tables)
+        final tables = await txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+        );
+
+        debugPrint('Found ${tables.length} tables to clear');
+
+        for (final table in tables) {
+          final tableName = table['name'] as String;
+
+          try {
+            // Delete all records from the table
+            await txn.execute('DELETE FROM `$tableName`');
+            debugPrint('✓ Cleared table: $tableName');
+          } catch (e) {
+            debugPrint('⚠ Error clearing table $tableName: $e');
+            // Continue with other tables even if one fails
+          }
+        }
+
+        // Re-enable foreign key constraints
+        await txn.execute('PRAGMA foreign_keys = ON');
+
+        // If we want to preserve structure but reset sequences
+        if (preserveStructure) {
+          // Reset AUTOINCREMENT sequences for tables with AUTOINCREMENT
+          final tablesWithAutoInc = await txn.rawQuery('''
+          SELECT name FROM sqlite_master
+          WHERE type='table'
+          AND sql LIKE '%AUTOINCREMENT%'
+          AND name NOT LIKE 'sqlite_%'
+        ''');
+
+          for (final table in tablesWithAutoInc) {
+            final tableName = table['name'] as String;
+            try {
+              await txn.execute('DELETE FROM sqlite_sequence WHERE name = ?', [
+                tableName,
+              ]);
+              debugPrint('✓ Reset sequence for: $tableName');
+            } catch (e) {
+              debugPrint('⚠ Error resetting sequence for $tableName: $e');
+            }
+          }
+        }
+      });
+
+      debugPrint('✅ All data cleared successfully');
+    } catch (e) {
+      debugPrint('❌ Error clearing all data: $e');
+      rethrow;
+    }
+  }
 }

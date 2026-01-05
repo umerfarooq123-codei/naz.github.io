@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:ledger_master/core/database/db_helper.dart';
 import 'package:ledger_master/core/models/cans.dart';
 
@@ -186,5 +187,44 @@ class CansRepository {
       balance += entries[i].currentCans - entries[i].receivedCans;
     }
     return balance;
+  }
+
+  /// Generate a unique voucher number (legacy function - can be used for other voucher types)
+  Future<String> generateVoucherNoByCanId(int canId) async {
+    final db = await _dbHelper.database;
+
+    try {
+      // Query only entries for this specific can to find the highest voucher number
+      final result = await db.rawQuery(
+        '''
+        SELECT voucherNo FROM cans_entries
+        WHERE cansId = ?
+        AND voucherNo IS NOT NULL
+        AND voucherNo LIKE 'CN%'
+        ORDER BY voucherNo DESC
+        LIMIT 1
+      ''',
+        [canId],
+      );
+
+      int maxNumber = 0;
+
+      if (result.isNotEmpty) {
+        final lastVoucherNo = result.first['voucherNo'] as String? ?? '';
+        final match = RegExp(r'CN(\d+)').firstMatch(lastVoucherNo);
+        if (match != null) {
+          maxNumber = int.tryParse(match.group(1)!) ?? 0;
+        }
+      }
+
+      // Generate next voucher number for this specific can
+      final nextNumber = maxNumber + 1;
+      return 'CN${nextNumber.toString().padLeft(3, '0')}'; // CN001, CN002, etc.
+    } catch (e) {
+      debugPrint('Error generating voucher number for canId $canId: $e');
+      // Fallback: return a timestamp-based voucher number
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      return 'CN${timestamp.toString().substring(9)}';
+    }
   }
 }

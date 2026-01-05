@@ -451,7 +451,7 @@ class ReceiptPdfGenerator {
         crossAxisAlignment: pw.CrossAxisAlignment.end,
         children: [
           pw.Container(
-            width: 150,
+            width: 250,
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.end,
               children: [
@@ -463,7 +463,7 @@ class ReceiptPdfGenerator {
           ),
           pw.SizedBox(height: 5),
           pw.Container(
-            width: 150,
+            width: 250,
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.end,
               children: [
@@ -478,7 +478,7 @@ class ReceiptPdfGenerator {
             mainAxisAlignment: pw.MainAxisAlignment.end,
             children: [
               pw.Container(
-                width: 150,
+                width: 250,
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.end,
                   children: [

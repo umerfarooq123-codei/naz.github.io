@@ -204,11 +204,8 @@ class CansList extends StatelessWidget {
                                                               .deleteCansTable(
                                                                 cans.id!,
                                                               );
-                                                          if (context.mounted) {
-                                                            Navigator.pop(
-                                                              context,
-                                                            );
-                                                          }
+                                                          await controller
+                                                              .fetchCans();
                                                         },
                                                         context: context,
                                                       );

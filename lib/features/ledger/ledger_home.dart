@@ -2138,25 +2138,25 @@ class LedgerEntryDataSource extends DataGridSource {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Tooltip(
-                                  message: "print",
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(14),
-                                    onTap: () => onPrint(entry, rowIndex),
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(
-                                        right: 4.0,
-                                      ),
-                                      child: Icon(
-                                        Icons.print_outlined,
-                                        size: 16,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                                // Tooltip(
+                                //   message: "print",
+                                //   child: InkWell(
+                                //     borderRadius: BorderRadius.circular(14),
+                                //     onTap: () => onPrint(entry, rowIndex),
+                                //     child: Padding(
+                                //       padding: const EdgeInsets.only(
+                                //         right: 4.0,
+                                //       ),
+                                //       child: Icon(
+                                //         Icons.print_outlined,
+                                //         size: 16,
+                                //         color: Theme.of(
+                                //           context,
+                                //         ).colorScheme.primary,
+                                //       ),
+                                //     ),
+                                //   ),
+                                // ),
                                 Tooltip(
                                   message: "delete",
                                   child: InkWell(
@@ -4626,10 +4626,15 @@ class LedgerEntryAddEdit extends StatelessWidget {
     // Calculate totals for all entries with this voucher
 
     double currentAmount = 0.0;
+    double amountToAddinNetBalance = 0.0;
     for (var entry in entriesWithSameVoucher) {
       currentAmount += entry.transactionType.toLowerCase() == 'credit'
           ? entry.credit
           : entry.debit;
+
+      amountToAddinNetBalance += entry.transactionType.toLowerCase() == 'credit'
+          ? entry.credit
+          : 0.0;
     }
 
     // Get the date of the first entry in this voucher
@@ -4652,7 +4657,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
       balanceCans: 0.0,
       currentAmount: currentAmount,
       previousAmount: netBalance,
-      netBalance: netBalance + currentAmount,
+      netBalance: netBalance + amountToAddinNetBalance,
     );
 
     debugPrint(data.toString());
