@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:ledger_master/core/utils/sentry_helper.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -24,33 +25,78 @@ class CustomerRepository {
   }
 
   Future<Customer?> getCustomer(String accountId) async {
-    final db = await _dbHelper.database;
-    final result = await db.query(
-      'customer',
-      where: 'id = ?',
-      whereArgs: [accountId],
-      limit: 1,
-    );
+    try {
+      final db = await _dbHelper.database;
+      final result = await db.query(
+        'customer',
+        where: 'id = ?',
+        whereArgs: [accountId],
+        limit: 1,
+      );
 
-    if (result.isNotEmpty) {
-      return Customer.fromMap(result.first);
-    } else {
+      if (result.isNotEmpty) {
+        SentryHelper.breadcrumbDatabase(
+          operation: 'SELECT',
+          table: 'customer',
+          data: {'accountId': accountId, 'found': true},
+        );
+        return Customer.fromMap(result.first);
+      } else {
+        SentryHelper.breadcrumbDatabase(
+          operation: 'SELECT',
+          table: 'customer',
+          data: {'accountId': accountId, 'found': false},
+        );
+        return null;
+      }
+    } catch (e, stackTrace) {
+      SentryHelper.captureException(
+        exception: e,
+        stackTrace: stackTrace,
+        context: 'getCustomer',
+        data: {'accountId': accountId},
+      );
+      debugPrint('❌ Error fetching customer: $e');
       return null;
     }
   }
 
   Future<Customer?> getCustomerByName(String customerName) async {
-    final db = await _dbHelper.database;
-    final result = await db.query(
-      'customer',
-      where: 'name = ? AND type = \'Customer\'',
-      whereArgs: [customerName.toLowerCase()],
-      limit: 1,
-    );
+    try {
+      final db = await _dbHelper.database;
+      final result = await db.rawQuery(
+        '''
+        SELECT *
+        FROM customer
+        WHERE UPPER(name) = UPPER(?) AND type = 'Customer'
+        LIMIT 1
+        ''',
+        [customerName],
+      );
 
-    if (result.isNotEmpty) {
-      return Customer.fromMap(result.first);
-    } else {
+      if (result.isNotEmpty) {
+        SentryHelper.breadcrumbDatabase(
+          operation: 'SELECT',
+          table: 'customer',
+          data: {'customerName': customerName, 'found': true},
+        );
+        return Customer.fromMap(result.first);
+      } else {
+        SentryHelper.breadcrumbDatabase(
+          operation: 'SELECT',
+          table: 'customer',
+          data: {'customerName': customerName, 'found': false},
+        );
+        return null;
+      }
+    } catch (e, stackTrace) {
+      SentryHelper.captureException(
+        exception: e,
+        stackTrace: stackTrace,
+        context: 'getCustomerByName',
+        data: {'customerName': customerName},
+      );
+      debugPrint('❌ Error fetching customer by name: $e');
       return null;
     }
   }

@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -12,7 +11,6 @@ import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/inventory/item_list.dart';
 import 'package:ledger_master/features/ledger/ledger_home.dart';
 import 'package:ledger_master/features/purchases_expenses/purchase_and_expense_list_and_form.dart';
-import 'package:ledger_master/features/temp.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -51,7 +49,6 @@ class ThemeController extends GetxController {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
 
@@ -68,20 +65,17 @@ void main() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-
   // Initialize all repositories and controllers via service bindings
   Get.put(ServiceBindings(), permanent: true);
-
-  if (kReleaseMode) {
-    await SentryFlutter.init((options) {
-      options.dsn =
-          'https://27a1cdd081c8d3c7be512fe49c8ebb9c@o4510713545490432.ingest.us.sentry.io/4510713547522048';
-      options.sendDefaultPii = true;
-      options.tracesSampleRate = 0.1;
-    }, appRunner: () => runApp(const MyApp()));
-  } else {
-    runApp(const MyApp());
-  }
+  await SentryFlutter.init((options) {
+    options.dsn =
+        'https://27a1cdd081c8d3c7be512fe49c8ebb9c@o4510713545490432.ingest.us.sentry.io/4510713547522048';
+    // Set tracesSampleRate to 1.0 to capture 100% of transactions for tracing.
+    // We recommend adjusting this value in production.
+    options.tracesSampleRate = 1.0;
+  }, appRunner: () => runApp(SentryWidget(child: const MyApp())));
+  // TODO: Remove this line after sending the first sample event to sentry.
+  await Sentry.captureException(Exception('This is a sample exception.'));
 }
 
 class MyApp extends StatelessWidget {
@@ -560,15 +554,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                 color: Theme.of(context).colorScheme.onSurface,
                 fontSize: TextSizes.heading, // Retain
               ),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => TestSyncScreen()),
-                );
-              },
-              child: Text('Test Sync'),
             ),
             const SizedBox(height: 20),
             GridView.count(

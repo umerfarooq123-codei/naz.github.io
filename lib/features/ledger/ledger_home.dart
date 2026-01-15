@@ -1,5 +1,7 @@
 // ignore_for_file: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member, use_build_context_synchronously
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -10,6 +12,7 @@ import 'package:ledger_master/core/models/item.dart';
 import 'package:ledger_master/core/models/ledger.dart';
 import 'package:ledger_master/core/repositories/cans_repository.dart';
 import 'package:ledger_master/core/utils/responsive.dart';
+import 'package:ledger_master/core/utils/sentry_helper.dart';
 import 'package:ledger_master/features/automation/automation_screen.dart';
 import 'package:ledger_master/features/cans/cans_controller.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
@@ -199,43 +202,211 @@ class LedgerHome extends StatelessWidget {
                               elevation: isDark ? 4 : 0,
                               child: InkWell(
                                 onTap: () async {
-                                  // Fetch fresh ledger data from database
-                                  final freshLedger = await LedgerRepository()
-                                      .getLedgerByNumber(ledger.ledgerNo);
+                                  try {
+                                    SentryHelper.breadcrumbUIAction(
+                                      action: 'Click ledger card',
+                                      page: 'LedgerHome',
+                                      data: {
+                                        'ledgerNo': ledger.ledgerNo,
+                                        'accountName': ledger.accountName,
+                                        'accountId': ledger.accountId,
+                                      },
+                                    );
 
-                                  if (freshLedger != null) {
-                                    await CustomerRepository()
-                                        .getCustomerByName(ledger.accountName)
-                                        .then((customer) {
-                                          if (customer != null &&
-                                              context.mounted) {
-                                            NavigationHelper.push(
-                                              context,
-                                              LedgerTablePage(
-                                                ledger:
-                                                    freshLedger, // Use fresh ledger object
-                                                customer: customer,
-                                              ),
+                                    // Show loading dialog
+                                    showDialog(
+                                      context: context,
+                                      barrierDismissible: false,
+                                      builder: (BuildContext dialogContext) {
+                                        return AlertDialog(
+                                          title: const Text(
+                                            'Loading Ledger...',
+                                          ),
+                                          content: const Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              CircularProgressIndicator(),
+                                              SizedBox(height: 16),
+                                              Text('Fetching ledger data...'),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    );
+
+                                    // Fetch fresh ledger data with timeout
+                                    final freshLedger = await LedgerRepository()
+                                        .getLedgerByNumber(ledger.ledgerNo)
+                                        .timeout(
+                                          const Duration(seconds: 15),
+                                          onTimeout: () {
+                                            throw TimeoutException(
+                                              'Failed to fetch ledger after 15 seconds',
                                             );
-                                          }
-                                        });
-                                  } else {
-                                    // Fallback to using the cached ledger if fresh one not found
-                                    await CustomerRepository()
+                                          },
+                                        );
+
+                                    if (!context.mounted) return;
+
+                                    // Get customer by ID (more reliable than by name)
+                                    Customer? customer;
+                                    if (ledger.accountId != null) {
+                                      customer = await CustomerRepository()
+                                          .getCustomer(
+                                            ledger.accountId.toString(),
+                                          )
+                                          .timeout(
+                                            const Duration(seconds: 15),
+                                            onTimeout: () => null,
+                                          );
+                                    }
+
+                                    // Fallback to name lookup if ID fails
+                                    customer ??= await CustomerRepository()
                                         .getCustomerByName(ledger.accountName)
-                                        .then((customer) {
-                                          if (customer != null &&
-                                              context.mounted) {
-                                            NavigationHelper.push(
-                                              context,
-                                              LedgerTablePage(
-                                                ledger:
-                                                    ledger, // Use the cached one as fallback
-                                                customer: customer,
+                                        .timeout(
+                                          const Duration(seconds: 15),
+                                          onTimeout: () => null,
+                                        );
+
+                                    if (!context.mounted) return;
+
+                                    // Close loading dialog
+                                    Navigator.of(context).pop();
+
+                                    // Navigate
+                                    if (customer != null) {
+                                      SentryHelper.breadcrumbNavigation(
+                                        from: 'LedgerHome',
+                                        to: 'LedgerTablePage',
+                                        data: {
+                                          'ledgerNo': ledger.ledgerNo,
+                                          'customerId': customer.id,
+                                        },
+                                      );
+
+                                      NavigationHelper.push(
+                                        context,
+                                        LedgerTablePage(
+                                          ledger: freshLedger ?? ledger,
+                                          customer: customer,
+                                        ),
+                                      );
+                                    } else {
+                                      SentryHelper.breadcrumbUIAction(
+                                        action: 'Customer not found',
+                                        page: 'LedgerHome',
+                                        data: {
+                                          'ledgerNo': ledger.ledgerNo,
+                                          'accountId': ledger.accountId,
+                                          'accountName': ledger.accountName,
+                                        },
+                                      );
+
+                                      showDialog(
+                                        context: context,
+                                        builder: (BuildContext dialogContext) {
+                                          return AlertDialog(
+                                            title: const Text(
+                                              '⚠️ Customer Not Found',
+                                            ),
+                                            content: Text(
+                                              'Ledger references customer:\n'
+                                              'ID: ${ledger.accountId}\n'
+                                              'Name: ${ledger.accountName}\n\n'
+                                              'But customer no longer exists in database.',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.of(
+                                                  dialogContext,
+                                                ).pop(),
+                                                child: const Text('OK'),
                                               ),
-                                            );
-                                          }
-                                        });
+                                            ],
+                                          );
+                                        },
+                                      );
+                                    }
+                                  } on TimeoutException catch (e) {
+                                    if (!context.mounted) return;
+
+                                    // Close loading dialog if still open
+                                    try {
+                                      Navigator.of(context).pop();
+                                    } catch (_) {}
+
+                                    showDialog(
+                                      context: context,
+                                      builder: (BuildContext dialogContext) {
+                                        return AlertDialog(
+                                          title: const Text('⏱️ Timeout Error'),
+                                          content: Text(
+                                            'Operation took too long:\n\n${e.message}',
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.of(
+                                                dialogContext,
+                                              ).pop(),
+                                              child: const Text('OK'),
+                                            ),
+                                          ],
+                                        );
+                                      },
+                                    );
+
+                                    debugPrint('❌ Timeout Error: ${e.message}');
+                                  } catch (e, stackTrace) {
+                                    if (!context.mounted) return;
+
+                                    // Close loading dialog if still open
+                                    try {
+                                      Navigator.of(context).pop();
+                                    } catch (_) {}
+
+                                    SentryHelper.captureException(
+                                      exception: e,
+                                      stackTrace: stackTrace,
+                                      context: 'LedgerHome.ledgerCardClick',
+                                      data: {
+                                        'ledgerNo': ledger.ledgerNo,
+                                        'accountId': ledger.accountId,
+                                        'accountName': ledger.accountName,
+                                      },
+                                    );
+
+                                    showDialog(
+                                      context: context,
+                                      builder: (BuildContext dialogContext) {
+                                        return AlertDialog(
+                                          title: const Text(
+                                            '❌ Error Loading Ledger',
+                                          ),
+                                          content: SingleChildScrollView(
+                                            child: Text(
+                                              'Error: ${e.toString()}\n\nStack: ${stackTrace.toString()}',
+                                              style: const TextStyle(
+                                                fontFamily: 'monospace',
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.of(
+                                                dialogContext,
+                                              ).pop(),
+                                              child: const Text('OK'),
+                                            ),
+                                          ],
+                                        );
+                                      },
+                                    );
+
+                                    debugPrint(
+                                      '❌ Error navigating to ledger:\nError: $e\nStack: $stackTrace',
+                                    );
                                   }
                                 },
                                 borderRadius: BorderRadius.circular(12),
@@ -1156,7 +1327,6 @@ class LedgerTablePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = Get.find<LedgerTableController>();
     final ledgerController = Get.find<LedgerController>();
-    final customerListController = Get.find<CustomerController>();
 
     // Compute net balance locally to avoid side effects in getter (sort + refresh during build)
     // ignore: unused_local_variable
@@ -1460,8 +1630,9 @@ class LedgerTablePage extends StatelessWidget {
                                 );
 
                                 // Refresh ALL data with fresh ledger
-                                final freshLedger = await controller
-                                    .refreshLedgerData(ledger.ledgerNo);
+                                await controller.refreshLedgerData(
+                                  ledger.ledgerNo,
+                                );
                                 await controller.loadLedgerEntries(
                                   ledger.ledgerNo,
                                 );
@@ -2068,9 +2239,6 @@ class LedgerEntryDataSource extends DataGridSource {
 
     final entryIndex = indexCell.value as int;
     final entry = _originalEntries[entryIndex];
-
-    // Calculate the display row index (reversed order if needed)
-    final rowIndex = _rows.length - 1 - _rows.indexOf(row);
 
     bool isHovered = false;
 
