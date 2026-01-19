@@ -1,6 +1,8 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'dart:convert';
 
+import 'package:intl/intl.dart';
+import 'package:ledger_master/core/services/generic_data_extractor.dart';
 import 'package:ledger_master/features/sales_invoicing/invoice_generator.dart';
 
 class StockTransaction {
@@ -39,7 +41,7 @@ class StockTransaction {
   }
 }
 
-class LedgerEntry {
+class LedgerEntry implements ExportableData {
   final int? id;
   final String ledgerNo;
   final String voucherNo;
@@ -111,6 +113,342 @@ class LedgerEntry {
     return cansQuantity! * canWeight!;
   }
 
+  @override
+  Map<String, String> getFieldMappings() {
+    return {
+      'voucherNo': 'Voucher No',
+      'ledgerNo': 'Ledger No',
+      'accountName': 'Account Name',
+      'date': 'Date',
+      'transactionType': 'Transaction Type',
+      'debit': 'Debit Amount',
+      'credit': 'Credit Amount',
+      'balance': 'Balance',
+      'status': 'Status',
+      'description': 'Description',
+      'referenceNo': 'Reference No',
+      'category': 'Category',
+      'tags': 'Tags',
+      'createdBy': 'Created By',
+      'balanceCans': 'Balance Cans',
+      'receivedCans': 'Received Cans',
+      'itemName': 'Item Name',
+      'itemPricePerUnit': 'Item Price/Unit',
+      'canWeight': 'Can Weight',
+      'cansQuantity': 'Cans Quantity',
+      'sellingPricePerCan': 'Selling Price/Can',
+      'paymentMethod': 'Payment Method',
+      'chequeNo': 'Cheque No',
+      'chequeAmount': 'Cheque Amount',
+      'chequeDate': 'Cheque Date',
+      'bankName': 'Bank Name',
+      'totalWeight': 'Total Weight',
+      'createdAt': 'Created At',
+      'updatedAt': 'Updated At',
+    };
+  }
+
+  @override
+  Map<String, dynamic> toExportMap() {
+    return {
+      'voucherNo': voucherNo,
+      'ledgerNo': ledgerNo,
+      'accountName': accountName,
+      'date': date,
+      'transactionType': transactionType,
+      'debit': debit,
+      'credit': credit,
+      'balance': balance,
+      'status': status,
+      'description': description ?? '',
+      'referenceNo': referenceNo ?? '',
+      'category': category ?? '',
+      'tags': tags?.join(', ') ?? '',
+      'createdBy': createdBy ?? '',
+      'balanceCans': balanceCans ?? '',
+      'receivedCans': receivedCans ?? '',
+      'itemName': itemName ?? '',
+      'itemPricePerUnit': itemPricePerUnit ?? 0,
+      'canWeight': canWeight ?? 0,
+      'cansQuantity': cansQuantity ?? 0,
+      'sellingPricePerCan': sellingPricePerCan ?? 0,
+      'paymentMethod': paymentMethod ?? '',
+      'chequeNo': chequeNo ?? '',
+      'chequeAmount': chequeAmount ?? 0,
+      'chequeDate': chequeDate,
+      'bankName': bankName ?? '',
+      'totalWeight': totalWeight,
+      'createdAt': createdAt,
+      'updatedAt': updatedAt,
+    };
+  }
+
+  /// Static method to create a pre-configured extractor for LedgerEntry
+  static GenericDataExtractor<LedgerEntry> createExtractor({
+    List<String>? includedFields,
+    List<String>? excludedFields,
+  }) {
+    final builder = DataExtractorBuilder<LedgerEntry>();
+
+    // Define all possible columns with their configurations
+    final allColumns = {
+      'voucherNo': ExportColumnConfig(
+        fieldName: 'voucherNo',
+        displayName: 'Voucher No',
+        dataType: ExportDataType.string,
+      ),
+      'ledgerNo': ExportColumnConfig(
+        fieldName: 'ledgerNo',
+        displayName: 'Ledger No',
+        dataType: ExportDataType.string,
+      ),
+      'accountName': ExportColumnConfig(
+        fieldName: 'accountName',
+        displayName: 'Account Name',
+        dataType: ExportDataType.string,
+      ),
+      'date': ExportColumnConfig(
+        fieldName: 'date',
+        displayName: 'Date',
+        dataType: ExportDataType.date,
+        dateFormat: 'dd-MM-yyyy',
+      ),
+      'transactionType': ExportColumnConfig(
+        fieldName: 'transactionType',
+        displayName: 'Transaction Type',
+        dataType: ExportDataType.string,
+      ),
+      'debit': ExportColumnConfig(
+        fieldName: 'debit',
+        displayName: 'Debit Amount',
+        dataType: ExportDataType.currency,
+        numberFormat: '#,##0.00',
+      ),
+      'credit': ExportColumnConfig(
+        fieldName: 'credit',
+        displayName: 'Credit Amount',
+        dataType: ExportDataType.currency,
+        numberFormat: '#,##0.00',
+      ),
+      'balance': ExportColumnConfig(
+        fieldName: 'balance',
+        displayName: 'Balance',
+        dataType: ExportDataType.currency,
+        numberFormat: '#,##0.00',
+      ),
+      'status': ExportColumnConfig(
+        fieldName: 'status',
+        displayName: 'Status',
+        dataType: ExportDataType.string,
+      ),
+      'description': ExportColumnConfig(
+        fieldName: 'description',
+        displayName: 'Description',
+        dataType: ExportDataType.string,
+      ),
+      'referenceNo': ExportColumnConfig(
+        fieldName: 'referenceNo',
+        displayName: 'Reference No',
+        dataType: ExportDataType.string,
+      ),
+      'category': ExportColumnConfig(
+        fieldName: 'category',
+        displayName: 'Category',
+        dataType: ExportDataType.string,
+      ),
+      'tags': ExportColumnConfig(
+        fieldName: 'tags',
+        displayName: 'Tags',
+        dataType: ExportDataType.string,
+      ),
+      'createdBy': ExportColumnConfig(
+        fieldName: 'createdBy',
+        displayName: 'Created By',
+        dataType: ExportDataType.string,
+      ),
+      'balanceCans': ExportColumnConfig(
+        fieldName: 'balanceCans',
+        displayName: 'Balance Cans',
+        dataType: ExportDataType.string,
+      ),
+      'receivedCans': ExportColumnConfig(
+        fieldName: 'receivedCans',
+        displayName: 'Received Cans',
+        dataType: ExportDataType.string,
+      ),
+      'itemName': ExportColumnConfig(
+        fieldName: 'itemName',
+        displayName: 'Item Name',
+        dataType: ExportDataType.string,
+      ),
+      'itemPricePerUnit': ExportColumnConfig(
+        fieldName: 'itemPricePerUnit',
+        displayName: 'Item Price/Unit',
+        dataType: ExportDataType.currency,
+        numberFormat: '#,##0.00',
+      ),
+      'canWeight': ExportColumnConfig(
+        fieldName: 'canWeight',
+        displayName: 'Can Weight',
+        dataType: ExportDataType.number,
+        numberFormat: '#,##0.00',
+      ),
+      'cansQuantity': ExportColumnConfig(
+        fieldName: 'cansQuantity',
+        displayName: 'Cans Quantity',
+        dataType: ExportDataType.number,
+      ),
+      'sellingPricePerCan': ExportColumnConfig(
+        fieldName: 'sellingPricePerCan',
+        displayName: 'Selling Price/Can',
+        dataType: ExportDataType.currency,
+        numberFormat: '#,##0.00',
+      ),
+      'paymentMethod': ExportColumnConfig(
+        fieldName: 'paymentMethod',
+        displayName: 'Payment Method',
+        dataType: ExportDataType.string,
+      ),
+      'chequeNo': ExportColumnConfig(
+        fieldName: 'chequeNo',
+        displayName: 'Cheque No',
+        dataType: ExportDataType.string,
+      ),
+      'chequeAmount': ExportColumnConfig(
+        fieldName: 'chequeAmount',
+        displayName: 'Cheque Amount',
+        dataType: ExportDataType.currency,
+        numberFormat: '#,##0.00',
+      ),
+      'chequeDate': ExportColumnConfig(
+        fieldName: 'chequeDate',
+        displayName: 'Cheque Date',
+        dataType: ExportDataType.date,
+        dateFormat: 'yyyy/MM/dd',
+      ),
+      'bankName': ExportColumnConfig(
+        fieldName: 'bankName',
+        displayName: 'Bank Name',
+        dataType: ExportDataType.string,
+      ),
+      'totalWeight': ExportColumnConfig(
+        fieldName: 'totalWeight',
+        displayName: 'Total Weight',
+        dataType: ExportDataType.number,
+        numberFormat: '#,##0.00',
+      ),
+      'createdAt': ExportColumnConfig(
+        fieldName: 'createdAt',
+        displayName: 'Created At',
+        dataType: ExportDataType.date,
+        dateFormat: 'dd-MM-yyyy HH:mm',
+      ),
+      'updatedAt': ExportColumnConfig(
+        fieldName: 'updatedAt',
+        displayName: 'Updated At',
+        dataType: ExportDataType.date,
+        dateFormat: 'dd-MM-yyyy HH:mm',
+      ),
+    };
+
+    // Apply inclusion/exclusion filters
+    List<ExportColumnConfig> columnsToAdd;
+
+    if (includedFields != null && includedFields.isNotEmpty) {
+      columnsToAdd = includedFields
+          .where((field) => allColumns.containsKey(field))
+          .map((field) => allColumns[field]!)
+          .toList();
+    } else if (excludedFields != null && excludedFields.isNotEmpty) {
+      columnsToAdd = allColumns.entries
+          .where((entry) => !excludedFields.contains(entry.key))
+          .map((entry) => entry.value)
+          .toList();
+    } else {
+      // Default: include all columns
+      columnsToAdd = allColumns.values.toList();
+    }
+
+    // Add columns to builder
+    for (final column in columnsToAdd) {
+      builder.addColumn(
+        fieldName: column.fieldName,
+        displayName: column.displayName,
+        dataType: column.dataType,
+        dateFormat: column.dateFormat,
+        numberFormat: column.numberFormat,
+        visible: column.visible,
+      );
+    }
+
+    return builder.build(
+      defaultDateFormat: DateFormat('dd-MM-yyyy'),
+      defaultNumberFormat: NumberFormat('#,##0.00'),
+    );
+  }
+
+  /// Quick extractor for basic ledger fields (most commonly used)
+  static GenericDataExtractor<LedgerEntry> createBasicExtractor() {
+    return createExtractor(
+      includedFields: [
+        'voucherNo',
+        'date',
+        'accountName',
+        'transactionType',
+        'debit',
+        'credit',
+        'balance',
+        'description',
+        'status',
+      ],
+    );
+  }
+
+  /// Quick extractor for item-related ledger fields
+  static GenericDataExtractor<LedgerEntry> createItemExtractor() {
+    return createExtractor(
+      includedFields: [
+        'voucherNo',
+        'date',
+        'itemName',
+        'transactionType',
+        'itemPricePerUnit',
+        'canWeight',
+        'cansQuantity',
+        'sellingPricePerCan',
+        'totalWeight',
+        'debit',
+        'credit',
+        'balance',
+        'balanceCans',
+        'receivedCans',
+      ],
+    );
+  }
+
+  /// Quick extractor for payment-related ledger fields
+  static GenericDataExtractor<LedgerEntry> createPaymentExtractor() {
+    return createExtractor(
+      includedFields: [
+        'voucherNo',
+        'date',
+        'accountName',
+        'transactionType',
+        'debit',
+        'credit',
+        'balance',
+        'paymentMethod',
+        'chequeNo',
+        'chequeAmount',
+        'chequeDate',
+        'bankName',
+        'referenceNo',
+      ],
+    );
+  }
+
+  // ... Keep the existing toMap, fromMap, fromJson methods ...
+  // They remain exactly the same as you have them
   /// Converts model to Map for database or API use
   Map<String, dynamic> toMap() {
     return {
@@ -143,7 +481,9 @@ class LedgerEntry {
       'paymentMethod': paymentMethod,
       'chequeNo': chequeNo,
       'chequeAmount': chequeAmount,
-      'chequeDate': chequeDate?.toIso8601String(),
+      'chequeDate': paymentMethod!.toLowerCase() == 'cheque'
+          ? chequeDate?.toIso8601String()
+          : null,
       'bankName': bankName,
     };
   }
@@ -218,7 +558,9 @@ class LedgerEntry {
       chequeAmount: map['chequeAmount'] != null
           ? (map['chequeAmount'] as num).toDouble()
           : null,
-      chequeDate: _parseDate(map['chequeDate']),
+      chequeDate: map['paymentMethod'].toLowerCase() == 'cheque'
+          ? _parseDate(map['chequeDate'])
+          : null,
       bankName: map['bankName'],
     );
   }

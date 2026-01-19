@@ -533,14 +533,21 @@ class VendorLedgerDataSource extends DataGridSource {
           );
         }
 
-        return Container(
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 6.0),
-          child: Text(
-            cell.value.toString(),
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall!.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
+        return InkWell(
+          onTap: () {
+            // Show dialog when any cell in the row is tapped
+            showVendorLedgerEntryDialog(context, entry);
+          },
+
+          child: Container(
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 6.0),
+            child: Text(
+              cell.value.toString(),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall!.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
             ),
           ),
         );

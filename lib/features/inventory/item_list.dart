@@ -1128,16 +1128,7 @@ class LedgerTablePage extends StatelessWidget {
                             style: Theme.of(context).textTheme.bodyLarge,
                           ),
                         ),
-                        onCellTap: (DataGridCellTapDetails details) {
-                          if (details.rowColumnIndex.rowIndex > 0) {
-                            final entry =
-                                controller.filteredLedgerEntries[details
-                                        .rowColumnIndex
-                                        .rowIndex -
-                                    1];
-                            showItemLedgerEntryDialog(context, entry);
-                          }
-                        },
+
                         columns: [
                           GridColumn(
                             columnName: 'voucherNo',
@@ -1234,7 +1225,7 @@ class LedgerEntryDataSource extends DataGridSource {
   }
 
   void _buildRows(List<ItemLedgerEntry> entries) {
-    print(item.type.toLowerCase());
+    // print(item.type.toLowerCase());
     _rows = entries.map((entry) {
       return DataGridRow(
         cells: [
@@ -1282,7 +1273,7 @@ class LedgerEntryDataSource extends DataGridSource {
       cells: row.getCells().asMap().entries.map((cellEntry) {
         final cell = cellEntry.value;
         final isLastCell = cellEntry.key == row.getCells().length - 1;
-        final rowIndex = rows.indexOf(row);
+        // final rowIndex = rows.indexOf(row);
         if (isLastCell) {
           return StatefulBuilder(
             builder: (context, setState) {
@@ -1332,23 +1323,23 @@ class LedgerEntryDataSource extends DataGridSource {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             ///////////////////////////////
-                            Tooltip(
-                              message: "print",
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(14),
-                                onTap: () => printEntry(entry, rowIndex),
-                                child: Padding(
-                                  padding: const EdgeInsets.only(right: 4.0),
-                                  child: Icon(
-                                    Icons.print_outlined,
-                                    size: 16,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                ),
-                              ),
-                            ),
+                            // Tooltip(
+                            //   message: "print",
+                            //   child: InkWell(
+                            //     borderRadius: BorderRadius.circular(14),
+                            //     onTap: () => printEntry(entry, rowIndex),
+                            //     child: Padding(
+                            //       padding: const EdgeInsets.only(right: 4.0),
+                            //       child: Icon(
+                            //         Icons.print_outlined,
+                            //         size: 16,
+                            //         color: Theme.of(
+                            //           context,
+                            //         ).colorScheme.primary,
+                            //       ),
+                            //     ),
+                            //   ),
+                            // ),
                             Tooltip(
                               message: "delete",
                               child: InkWell(
@@ -1369,23 +1360,23 @@ class LedgerEntryDataSource extends DataGridSource {
                                 ),
                               ),
                             ),
-                            // Tooltip(
-                            //   message: "edit",
-                            //   child: InkWell(
-                            //     borderRadius: BorderRadius.circular(14),
-                            //     onTap: () => editEntry(entry, context),
-                            //     child: Padding(
-                            //       padding: const EdgeInsets.only(right: 4.0),
-                            //       child: Icon(
-                            //         Icons.edit_outlined,
-                            //         size: 16,
-                            //         color: Theme.of(
-                            //           context,
-                            //         ).colorScheme.primary,
-                            //       ),
-                            //     ),
-                            //   ),
-                            // ),
+                            Tooltip(
+                              message: "edit",
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () => editEntry(entry, context),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 4.0),
+                                  child: Icon(
+                                    Icons.edit_outlined,
+                                    size: 16,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1395,21 +1386,26 @@ class LedgerEntryDataSource extends DataGridSource {
             },
           );
         }
-        return Container(
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6.0),
-            child: Text(
-              cell.columnName == 'debit' || cell.columnName == 'credit'
-                  ? NumberFormat('#,##0', 'en_US').format(cell.value ?? 0)
-                  : cell.value.toString(),
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall!.copyWith(
-                fontWeight:
-                    cell.columnName == 'debit' || cell.columnName == 'credit'
-                    ? FontWeight.w500
-                    : null,
-                color: Theme.of(context).colorScheme.onSurface,
+        return InkWell(
+          onTap: () {
+            showItemLedgerEntryDialog(context, entry);
+          },
+          child: Container(
+            alignment: Alignment.center,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6.0),
+              child: Text(
+                cell.columnName == 'debit' || cell.columnName == 'credit'
+                    ? NumberFormat('#,##0', 'en_US').format(cell.value ?? 0)
+                    : cell.value.toString(),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall!.copyWith(
+                  fontWeight:
+                      cell.columnName == 'debit' || cell.columnName == 'credit'
+                      ? FontWeight.w500
+                      : null,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
             ),
           ),
@@ -1640,8 +1636,17 @@ class ItemLedgerTableController extends GetxController {
 
       double runningBalance = 0.0;
       for (var entry in filtered) {
+        // Only add credit amounts to balance
         runningBalance += entry.credit;
-        runningBalance -= entry.debit;
+
+        // Do NOT subtract debit from balance (only count credit)
+        // runningBalance remains unchanged for debit entries
+
+        // Ensure balance is never negative
+        if (runningBalance < 0) {
+          runningBalance = 0.0;
+        }
+
         entry.balance = runningBalance;
       }
 
@@ -1720,40 +1725,6 @@ class ItemLedgerTableController extends GetxController {
     } else {
       selectedRows.clear();
     }
-  }
-
-  void analyzeCalculations() {
-    final entries = filteredLedgerEntries;
-    String analysis = "Calculation Analysis:\n\n";
-    analysis += "All Entries:\n";
-    for (var entry in entries) {
-      analysis +=
-          "Voucher: ${entry.voucherNo} | Debit: ${NumberFormat('#,##0', 'en_US').format(entry.debit)} | Credit: ${NumberFormat('#,##0', 'en_US').format(entry.credit)} | Balance: ${NumberFormat('#,##0', 'en_US').format(entry.balance)}\n";
-    }
-    analysis += "\nTotals:\n";
-    analysis +=
-        "Total Debit: ${NumberFormat('#,##0', 'en_US').format(totalDebit)}\n";
-    analysis +=
-        "Total Credit: ${NumberFormat('#,##0', 'en_US').format(totalCredit)}\n";
-    analysis +=
-        "Net Balance: ${NumberFormat('#,##0', 'en_US').format(netBalance)}\n\n";
-    double calculatedNetBalance = entries.fold(
-      0,
-      (sum, entry) =>
-          sum +
-          (entry.transactionType == "Credit" ? entry.credit : -entry.debit),
-    );
-    analysis +=
-        "Calculated Net Balance: ${NumberFormat('#,##0', 'en_US').format(calculatedNetBalance)}\n";
-    if ((netBalance - calculatedNetBalance).abs() < 0.01) {
-      analysis += "✓ Balance calculation is CORRECT\n";
-    } else {
-      analysis += "✗ Balance calculation is INCORRECT\n";
-      analysis +=
-          "Difference: ${NumberFormat('#,##0', 'en_US').format(netBalance - calculatedNetBalance)}\n";
-    }
-    calculationAnalysis.value = analysis;
-    showCalculationAnalysis.value = true;
   }
 
   @override
@@ -2674,7 +2645,7 @@ class ItemLedgerEntryController extends GetxController {
     final qty = double.tryParse(itemWeightCurrent.text) ?? 0.0;
     // Use selling price per unit (unitPriceController) not cost price
     final sellingPricePerUnit =
-        double.tryParse(unitPriceController.text) ?? 0.0;
+        double.tryParse(costPriceController.text) ?? 0.0;
     final amount = qty * sellingPricePerUnit;
 
     debugPrint(

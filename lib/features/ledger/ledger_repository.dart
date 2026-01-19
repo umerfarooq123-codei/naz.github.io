@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:ledger_master/core/models/item.dart';
 
 import '../../core/database/db_helper.dart';
@@ -108,6 +110,104 @@ class LedgerRepository {
       return result.map((e) => LedgerEntry.fromMap(e)).toList();
     } catch (e) {
       return [];
+    }
+  }
+
+  Future<List<LedgerEntry>> getLedgerEntriesByDateRange({
+    required String ledgerNo,
+    required String fromDateStr,
+    required String toDateStr,
+  }) async {
+    final db = await _dbHelper.database;
+    final tableName = _tableNameFromLedgerNo(ledgerNo);
+
+    try {
+      // Parse string dates to DateTime
+      DateTime fromDate;
+      DateTime toDate;
+
+      try {
+        // Try parsing with common date formats
+        fromDate = _parseDateString(fromDateStr);
+        toDate = _parseDateString(toDateStr);
+      } catch (e) {
+        debugPrint('Error parsing date strings: $e');
+        return []; // Return empty if dates can't be parsed
+      }
+
+      // Validate dates
+      if (fromDate.isAfter(toDate)) {
+        return [];
+      }
+
+      // Convert dates to ISO 8601 strings for comparison
+      // Use start of day for fromDate
+      final fromDateString = DateTime(
+        fromDate.year,
+        fromDate.month,
+        fromDate.day,
+      ).toIso8601String();
+
+      // Use end of day for toDate (add 1 day, subtract 1 microsecond)
+      final endOfDay = DateTime(
+        toDate.year,
+        toDate.month,
+        toDate.day + 1,
+      ).subtract(Duration(microseconds: 1));
+      final toDateString = endOfDay.toIso8601String();
+
+      final query =
+          '''
+      SELECT * FROM $tableName
+      WHERE date >= ? AND date <= ?
+      ORDER BY date ASC
+    ''';
+
+      final result = await db.rawQuery(query, [fromDateString, toDateString]);
+
+      final ledgerEntries = result.map((e) => LedgerEntry.fromMap(e)).toList();
+
+      return ledgerEntries;
+    } catch (e) {
+      debugPrint('ERROR in getLedgerEntriesByDateRange: $e');
+      debugPrint('Stack trace: ${e is Error ? e.stackTrace : ''}');
+      return [];
+    }
+  }
+
+  // Helper method to parse date strings in various formats
+  DateTime _parseDateString(String dateStr) {
+    final trimmed = dateStr.trim();
+
+    // Try parsing as ISO format first
+    try {
+      return DateTime.parse(trimmed);
+    } catch (_) {}
+
+    // Try common date formats
+    final formats = [
+      DateFormat('dd-MM-yyyy'),
+      DateFormat('dd/MM/yyyy'),
+      DateFormat('MM-dd-yyyy'),
+      DateFormat('MM/dd/yyyy'),
+      DateFormat('yyyy-MM-dd'),
+      DateFormat('yyyy/MM/dd'),
+      DateFormat('dd.MM.yyyy'),
+      DateFormat('MM.dd.yyyy'),
+      DateFormat('yyyy.MM.dd'),
+    ];
+
+    for (final format in formats) {
+      try {
+        return format.parseStrict(trimmed);
+      } catch (_) {}
+    }
+
+    // If none of the above work, try loose parsing
+    try {
+      return DateFormat('dd-MM-yyyy').parse(trimmed);
+    } catch (_) {
+      throw FormatException('Unable to parse date string: $dateStr');
     }
   }
 

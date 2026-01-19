@@ -235,7 +235,7 @@ class ReceiptPdfGenerator {
     }
   }
 
-  static Future<pw.Widget> _buildReceiptContent(
+  static Future<pw.Widget> buildReceiptContent(
     ReceiptData data,
     pw.TextStyle titleStyle,
     pw.TextStyle normalStyle,
@@ -243,6 +243,7 @@ class ReceiptPdfGenerator {
     pw.TextStyle boldStyle,
     pw.MemoryImage logo, {
     bool showLogo = true, // 👈 added flag
+    bool showPrices = true, // 👈 added flag
   }) async {
     pw.Widget signatureLine(String label, {bool isLeft = false}) {
       return pw.Expanded(
@@ -339,7 +340,8 @@ class ReceiptPdfGenerator {
         decoration: pw.BoxDecoration(color: PdfColors.grey200),
         children: [
           buildTableCell('Item', isHeader: true, boldStyle: boldStyle),
-          buildTableCell('Price', isHeader: true, boldStyle: boldStyle),
+          if (showPrices)
+            buildTableCell('Price', isHeader: true, boldStyle: boldStyle),
           buildTableCell('Cans', isHeader: true, boldStyle: boldStyle),
           buildTableCell('Type', isHeader: true, boldStyle: boldStyle),
           buildTableCell('Description', isHeader: true, boldStyle: boldStyle),
@@ -353,13 +355,20 @@ class ReceiptPdfGenerator {
         pw.TableRow(
           children: [
             buildTableCell(item.name, normalStyle: normalStyle),
-            buildTableCell(formatNumber(item.price), normalStyle: normalStyle),
+            if (showPrices)
+              buildTableCell(
+                formatNumber(item.price),
+                normalStyle: normalStyle,
+              ),
             buildTableCell(
               formatNumber(item.canQuantity),
               normalStyle: normalStyle,
             ),
             buildTableCell(item.type, normalStyle: normalStyle),
-            buildTableCell(item.description, normalStyle: normalStyle),
+            buildTableCell(
+              showPrices ? item.description : "-",
+              normalStyle: normalStyle,
+            ),
             buildTableCell(formatNumber(item.amount), normalStyle: normalStyle),
           ],
         ),
@@ -526,7 +535,7 @@ class ReceiptPdfGenerator {
             header,
             pw.SizedBox(height: 10),
             pw.Center(child: itemsTable),
-            if (showCansTable) ...[
+            if (showCansTable || showPrices) ...[
               pw.SizedBox(height: 10),
               pw.Center(child: cansTable),
             ],
@@ -540,6 +549,7 @@ class ReceiptPdfGenerator {
   static Future<pw.Document> buildPdf(
     ReceiptData data, {
     bool showLogo = true,
+    bool showPrices = true,
   }) async {
     final pdf = pw.Document();
     final logo = await _loadLogo();
@@ -549,7 +559,7 @@ class ReceiptPdfGenerator {
     final smallStyle = await ReceiptStyles.getSmallStyle();
     final boldStyle = await ReceiptStyles.getBoldStyle();
 
-    final officeCopy = await _buildReceiptContent(
+    final officeCopy = await buildReceiptContent(
       data,
       titleStyle,
       normalStyle,
@@ -559,7 +569,7 @@ class ReceiptPdfGenerator {
       showLogo: showLogo,
     );
 
-    final receiverCopy = await _buildReceiptContent(
+    final receiverCopy = await buildReceiptContent(
       data,
       titleStyle,
       normalStyle,
@@ -655,8 +665,16 @@ class ReceiptPdfGenerator {
     return filePath;
   }
 
-  static Future<void> printPdf(ReceiptData data, {bool showLogo = true}) async {
-    final pdf = await buildPdf(data, showLogo: showLogo);
+  static Future<void> printPdf(
+    ReceiptData data, {
+    bool showLogo = true,
+    bool showPrices = true,
+  }) async {
+    final pdf = await buildPdf(
+      data,
+      showLogo: showLogo,
+      showPrices: showPrices,
+    );
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => await pdf.save(),
     );
@@ -665,6 +683,7 @@ class ReceiptPdfGenerator {
   static Future<void> generateAndPrint(
     ReceiptData data, {
     bool showLogo = true,
+    bool showPrices = true,
   }) async {
     await saveToTempFile(data, showLogo: showLogo);
     await printPdf(data, showLogo: showLogo);

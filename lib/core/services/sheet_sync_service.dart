@@ -1,49 +1,341 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import 'package:ledger_master/core/database/db_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-class SheetSyncService {
+class SheetSyncService extends GetxService {
   static const String webAppUrl =
       'https://script.google.com/macros/s/AKfycbzkQ2HaAGUYiD9Vm4Ox5aX9bQfimJ7S_3bDGGMYRXk2BaZaurpfSNvlCXPZHXd2pnAe/exec';
 
   final DBHelper dbHelper = DBHelper();
   late SharedPreferences _prefs;
 
-  // ==================== SINGLE UNIFIED SYNC FUNCTION ====================
+  // Automatic sync timer
+  Timer? _syncTimer;
 
-  // **THIS IS THE ONLY FUNCTION YOU NEED TO CALL**
+  // Reactive sync status
+  final isSyncing = false.obs;
+  final lastSyncTime = Rx<DateTime?>(null);
+  final nextSyncTime = Rx<DateTime?>(null);
+  final syncSettings = Rx<Map<String, dynamic>>({
+    'hours': 0,
+    'minutes': 0,
+    'enabled': false,
+  });
+
+  @override
+  void onInit() {
+    super.onInit();
+    _initService();
+  }
+
+  @override
+  void onClose() {
+    _stopAutoSync();
+    super.onClose();
+  }
+
+  // ==================== SERVICE INITIALIZATION ====================
+
+  Future<void> _initService() async {
+    await _initPrefs();
+    await _loadSyncSettings();
+    await _loadLastSyncTime();
+    await _startAutoSync();
+  }
+
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
+  }
+
+  Future<void> _loadSyncSettings() async {
+    final settingsData = _prefs.getString('backup_sync_settings');
+    if (settingsData != null) {
+      try {
+        final map = jsonDecode(settingsData) as Map<String, dynamic>;
+        syncSettings.value = {
+          'hours': map['hours'] ?? 0,
+          'minutes': map['minutes'] ?? 0,
+          'enabled': map['enabled'] ?? false,
+        };
+      } catch (e) {
+        debugPrint('Error loading sync settings: $e');
+      }
+    }
+  }
+
+  Future<void> _loadLastSyncTime() async {
+    final lastSyncString = _prefs.getString('last_sync_time');
+    if (lastSyncString != null) {
+      try {
+        lastSyncTime.value = DateTime.parse(lastSyncString);
+      } catch (e) {
+        debugPrint('Error parsing last sync time: $e');
+      }
+    }
+  }
+
+  Future<void> _saveLastSyncTime() async {
+    final now = DateTime.now();
+    lastSyncTime.value = now;
+    await _prefs.setString('last_sync_time', now.toIso8601String());
+  }
+
+  // ==================== INTERNET CHECK ====================
+
+  Future<bool> _checkInternetConnection() async {
+    try {
+      // Simple internet check - try to reach Google
+      final response = await http
+          .get(Uri.parse('https://www.google.com'))
+          .timeout(const Duration(seconds: 5));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('🌐 No internet connection: $e');
+      return false;
+    }
+  }
+
+  // ==================== AUTOMATIC SYNC SCHEDULING ====================
+
+  Future<void> _startAutoSync() async {
+    _stopAutoSync();
+
+    if (!syncSettings.value['enabled'] ||
+        (syncSettings.value['hours'] == 0 &&
+            syncSettings.value['minutes'] == 0)) {
+      return;
+    }
+
+    final totalMinutes =
+        (syncSettings.value['hours'] * 60) + syncSettings.value['minutes'];
+    if (totalMinutes <= 0) return;
+
+    final now = DateTime.now();
+    DateTime nextSync;
+
+    if (lastSyncTime.value != null) {
+      nextSync = lastSyncTime.value!.add(Duration(minutes: totalMinutes));
+      if (nextSync.isBefore(now)) {
+        nextSync = now;
+      }
+    } else {
+      nextSync = now;
+    }
+
+    nextSyncTime.value = nextSync;
+
+    final delay = nextSync.difference(now);
+
+    if (delay.inSeconds <= 0) {
+      await _performAutoSync();
+    } else {
+      _syncTimer = Timer(delay, () async {
+        await _performAutoSync();
+      });
+    }
+
+    _schedulePeriodicCheck();
+  }
+
+  Future<void> _performAutoSync() async {
+    if (isSyncing.value) return;
+
+    // Check internet before syncing
+    final hasInternet = await _checkInternetConnection();
+    if (!hasInternet) {
+      debugPrint('🌐 Skipping auto sync: No internet');
+      return;
+    }
+
+    debugPrint('🔄 Starting automatic sync...');
+    await syncData();
+    await _startAutoSync(); // Schedule next
+  }
+
+  void _schedulePeriodicCheck() {
+    Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (!syncSettings.value['enabled']) {
+        timer.cancel();
+        return;
+      }
+
+      final now = DateTime.now();
+      if (nextSyncTime.value != null && now.isAfter(nextSyncTime.value!)) {
+        _performAutoSync();
+      }
+    });
+  }
+
+  void _stopAutoSync() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+  }
+
+  // Update sync settings from AutomationController
+  Future<void> updateSyncSettings(Map<String, dynamic> newSettings) async {
+    syncSettings.value = newSettings;
+    await _prefs.setString('backup_sync_settings', jsonEncode(newSettings));
+    await _startAutoSync();
+  }
+
+  // ==================== MANUAL SYNC WITH DIALOGS ====================
+
+  Future<Map<String, dynamic>> manualSyncWithDialog() async {
+    if (isSyncing.value) {
+      Get.snackbar(
+        'Sync In Progress',
+        'Please wait for the current sync to complete',
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 2),
+      );
+      return {'success': false, 'message': 'Sync already in progress'};
+    }
+
+    // Check internet before showing dialog
+    final hasInternet = await _checkInternetConnection();
+    if (!hasInternet) {
+      Get.snackbar(
+        'No Internet',
+        'Please check your internet connection',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 3),
+      );
+      return {'success': false, 'message': 'No internet connection'};
+    }
+
+    final confirm = await Get.dialog<bool>(
+      AlertDialog(
+        title: const Text('Sync Data to Cloud'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('This will sync all your data to Google Sheets.'),
+            const SizedBox(height: 8),
+            if (lastSyncTime.value != null)
+              Text(
+                'Last sync: ${_formatLastSyncTime(lastSyncTime.value!)}',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(result: false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Get.back(result: true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Start Sync'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) {
+      return {'success': false, 'message': 'Sync cancelled'};
+    }
+
+    Get.dialog(
+      WillPopScope(
+        onWillPop: () async => false,
+        child: const AlertDialog(
+          title: Text('Syncing Data'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Syncing in progress...'),
+            ],
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+
+    try {
+      isSyncing.value = true;
+      final result = await syncData();
+      Get.back();
+
+      // Show simple result dialog
+      await Get.dialog(
+        AlertDialog(
+          title: Text(
+            result['success'] == true ? 'Sync Complete' : 'Sync Failed',
+          ),
+          content: Text(result['message'] ?? ''),
+          actions: [
+            TextButton(onPressed: () => Get.back(), child: const Text('OK')),
+          ],
+        ),
+      );
+
+      return result;
+    } catch (e) {
+      Get.back();
+
+      await Get.dialog(
+        AlertDialog(
+          title: const Text('Sync Error'),
+          content: Text('Error: $e'),
+          actions: [
+            TextButton(onPressed: () => Get.back(), child: const Text('OK')),
+          ],
+        ),
+      );
+
+      return {'success': false, 'error': e.toString()};
+    } finally {
+      isSyncing.value = false;
+    }
+  }
+
+  // ==================== CORE SYNC FUNCTION ====================
+
   Future<Map<String, dynamic>> syncData() async {
-    final stopwatch = Stopwatch()..start(); // Start timer at the beginning
+    final stopwatch = Stopwatch()..start();
 
     try {
       await _initPrefs();
 
-      // Get all table names
+      // Check internet before starting sync
+      final hasInternet = await _checkInternetConnection();
+      if (!hasInternet) {
+        return {
+          'success': false,
+          'error': 'No internet connection',
+          'timestamp': DateTime.now().toIso8601String(),
+        };
+      }
+
       List<String> tables = await getAllTableNames();
       debugPrint('🚀 Starting sync - Found ${tables.length} tables');
 
-      Map<String, dynamic> results = {};
       int syncedCount = 0;
       int skippedCount = 0;
       int failedCount = 0;
 
       for (String table in tables) {
         try {
-          // Get current table data
           List<Map<String, dynamic>> localData = await getLocalTableData(table);
-
-          // Calculate current hash
           String currentHash = await _calculateDataHash(localData);
-
-          // Get stored hash from last sync
           String storedHash = await _getStoredHash(table);
-
-          // Check if we need to sync
           bool shouldSync = currentHash != storedHash;
 
           if (shouldSync) {
@@ -56,75 +348,48 @@ class SheetSyncService {
 
             if (success) {
               syncedCount++;
-              results[table] = {
-                'success': true,
-                'action': 'synced',
-                'rows': localData.length,
-              };
-              debugPrint('✅ Synced: $table (${localData.length} rows)');
+              debugPrint('✅ Synced: $table');
             } else {
               failedCount++;
-              results[table] = {'success': false, 'action': 'failed'};
               debugPrint('❌ Failed: $table');
             }
           } else {
             skippedCount++;
-            results[table] = {
-              'success': true,
-              'action': 'skipped',
-              'rows': localData.length,
-            };
-            debugPrint('⚡ Skipped: $table (no changes)');
+            debugPrint('⚡ Skipped: $table');
           }
         } catch (e) {
           failedCount++;
-          results[table] = {'success': false, 'error': e.toString()};
           debugPrint('❌ Error: $table - $e');
         }
       }
 
-      stopwatch.stop(); // Stop timer at the end
+      stopwatch.stop();
+      debugPrint('⏱️ Total time: ${stopwatch.elapsed}');
 
-      final executionTime = stopwatch.elapsed;
-      final minutes = executionTime.inMinutes;
-      final seconds = executionTime.inSeconds % 60;
-      final milliseconds = executionTime.inMilliseconds % 1000;
-
-      debugPrint(
-        '⏱️ Total execution time: ${minutes}m ${seconds}s ${milliseconds}ms',
-      );
+      if (failedCount == 0) {
+        await _saveLastSyncTime();
+      }
 
       return {
         'success': failedCount == 0,
         'message':
             'Sync completed: $syncedCount synced, $skippedCount skipped, $failedCount failed',
-        'totalTables': tables.length,
         'synced': syncedCount,
         'skipped': skippedCount,
         'failed': failedCount,
-        'results': results,
-        'executionTime': executionTime.toString(),
-        'executionTimeMs': executionTime.inMilliseconds,
-        'executionTimeFormatted': '${minutes}m ${seconds}s ${milliseconds}ms',
         'timestamp': DateTime.now().toIso8601String(),
       };
     } catch (e) {
       stopwatch.stop();
       debugPrint('❌ Fatal sync error: $e');
-      debugPrint('⏱️ Failed after: ${stopwatch.elapsed}');
-
       return {
         'success': false,
         'error': e.toString(),
-        'executionTime': stopwatch.elapsed.toString(),
         'timestamp': DateTime.now().toIso8601String(),
       };
     }
   }
 
-  // ==================== CORE SYNC LOGIC ====================
-
-  // Sync a single table to Google Sheets
   Future<bool> _syncTableToSheets(
     String tableName,
     List<Map<String, dynamic>> data,
@@ -132,7 +397,7 @@ class SheetSyncService {
   ) async {
     try {
       if (data.isEmpty) {
-        debugPrint('📭 Table $tableName is empty, skipping');
+        debugPrint('📭 Table $tableName is empty');
         await _storeHash(tableName, 'empty');
         return true;
       }
@@ -147,11 +412,9 @@ class SheetSyncService {
         }),
       );
 
-      // Success conditions: 200 OK or 302 Redirect
       bool success = response.statusCode == 200 || response.statusCode == 302;
 
       if (success) {
-        // Store the hash after successful sync
         await _storeHash(tableName, currentHash);
         return true;
       } else {
@@ -164,48 +427,26 @@ class SheetSyncService {
     }
   }
 
-  // ==================== HASH MANAGEMENT ====================
+  // ==================== HELPER METHODS ====================
 
-  // Calculate hash of data
   Future<String> _calculateDataHash(List<Map<String, dynamic>> data) async {
     if (data.isEmpty) return 'empty';
-
     var dataString = jsonEncode(data);
     var bytes = utf8.encode(dataString);
     var digest = md5.convert(bytes);
     return digest.toString();
   }
 
-  // Get stored hash from SharedPreferences
   Future<String> _getStoredHash(String tableName) async {
     await _initPrefs();
     return _prefs.getString('hash_$tableName') ?? 'first_time';
   }
 
-  // Store hash in SharedPreferences
   Future<void> _storeHash(String tableName, String hash) async {
     await _initPrefs();
     await _prefs.setString('hash_$tableName', hash);
   }
 
-  // Initialize SharedPreferences
-  Future<void> _initPrefs() async {
-    _prefs = await SharedPreferences.getInstance();
-  }
-
-  // Clear all stored hashes (for testing/reset)
-  Future<void> resetSyncStatus() async {
-    await _initPrefs();
-    final keys = _prefs.getKeys().where((key) => key.startsWith('hash_'));
-    for (String key in keys) {
-      await _prefs.remove(key);
-    }
-    debugPrint('🔄 All sync statuses reset');
-  }
-
-  // ==================== HELPER METHODS ====================
-
-  // Get all table names from database
   Future<List<String>> getAllTableNames() async {
     try {
       Database db = await dbHelper.database;
@@ -219,7 +460,6 @@ class SheetSyncService {
     }
   }
 
-  // Get all data from local table
   Future<List<Map<String, dynamic>>> getLocalTableData(String tableName) async {
     try {
       Database db = await dbHelper.database;
@@ -230,84 +470,21 @@ class SheetSyncService {
     }
   }
 
-  // Get row count from local table
-  Future<int> getLocalRowCount(String tableName) async {
-    try {
-      Database db = await dbHelper.database;
-      List<Map<String, dynamic>> result = await db.rawQuery(
-        'SELECT COUNT(*) as count FROM $tableName',
-      );
-      return result.first['count'] as int;
-    } catch (e) {
-      debugPrint('Error getting local count for $tableName: $e');
-      return 0;
-    }
+  String _formatLastSyncTime(DateTime time) {
+    final now = DateTime.now();
+    final difference = now.difference(time);
+
+    if (difference.inMinutes < 1) return 'Just now';
+    if (difference.inMinutes < 60) return '${difference.inMinutes} minutes ago';
+    if (difference.inHours < 24) return '${difference.inHours} hours ago';
+    return '${difference.inDays} days ago';
   }
 
-  // ==================== UTILITY METHODS ====================
-
-  // Check if any table needs sync
-  Future<bool> hasChanges() async {
-    List<String> tables = await getAllTableNames();
-
-    for (String table in tables) {
-      List<Map<String, dynamic>> data = await getLocalTableData(table);
-      String currentHash = await _calculateDataHash(data);
-      String storedHash = await _getStoredHash(table);
-
-      if (currentHash != storedHash) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  // Get sync summary
-  Future<Map<String, dynamic>> getSyncSummary() async {
-    List<String> tables = await getAllTableNames();
-    Map<String, dynamic> summary = {};
-    int changedCount = 0;
-
-    for (String table in tables) {
-      List<Map<String, dynamic>> data = await getLocalTableData(table);
-      String currentHash = await _calculateDataHash(data);
-      String storedHash = await _getStoredHash(table);
-
-      bool hasChanges = currentHash != storedHash;
-      if (hasChanges) changedCount++;
-
-      summary[table] = {
-        'rowCount': data.length,
-        'hasChanges': hasChanges,
-        'currentHash': currentHash.substring(0, 8),
-        'storedHash': storedHash.substring(0, 8),
-      };
-    }
-
-    return {
-      'totalTables': tables.length,
-      'changedTables': changedCount,
-      'allSynced': changedCount == 0,
-      'summary': summary,
-    };
-  }
-
-  // Force sync a specific table (bypass hash check)
-  Future<bool> forceSyncTable(String tableName) async {
-    try {
-      List<Map<String, dynamic>> data = await getLocalTableData(tableName);
-      String hash = await _calculateDataHash(data);
-      return await _syncTableToSheets(tableName, data, hash);
-    } catch (e) {
-      debugPrint('Error force syncing $tableName: $e');
-      return false;
-    }
-  }
-
-  // Test API connection
   Future<bool> testConnection() async {
     try {
+      final hasInternet = await _checkInternetConnection();
+      if (!hasInternet) return false;
+
       http.Response response = await http.post(
         Uri.parse(webAppUrl),
         headers: {'Content-Type': 'application/json'},

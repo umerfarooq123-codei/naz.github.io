@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:ledger_master/core/models/customer.dart';
 import 'package:ledger_master/core/models/item.dart';
 import 'package:ledger_master/core/models/ledger.dart';
+import 'package:ledger_master/features/vendor_ledger/vendor_ledger_repository.dart';
 import 'package:ledger_master/main.dart';
 
 void showCustomerLedgerEntryDialog(
@@ -11,6 +12,7 @@ void showCustomerLedgerEntryDialog(
   CustomerLedgerEntry entry,
 ) {
   final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
+  final isDark = Theme.of(context).brightness == Brightness.dark;
 
   showDialog(
     context: context,
@@ -56,6 +58,38 @@ void showCustomerLedgerEntryDialog(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Basic Information
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "Basic Information",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
                         entryRow(context, "Voucher No", entry.voucherNo),
                         entryRow(context, "Customer Name", entry.customerName),
                         entryRow(
@@ -68,6 +102,46 @@ void showCustomerLedgerEntryDialog(
                           "Transaction Type",
                           entry.transactionType,
                         ),
+                        entryRow(context, "Description", entry.description),
+
+                        const SizedBox(height: 12),
+                        Divider(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Financial Details
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "Financial Details",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
                         entryRow(
                           context,
                           "Debit",
@@ -83,31 +157,123 @@ void showCustomerLedgerEntryDialog(
                           "Balance",
                           entry.balance.toStringAsFixed(2),
                         ),
-                        entryRow(context, "Description", entry.description),
-                        entryRow(
-                          context,
-                          "Payment Method",
-                          entry.paymentMethod ?? "-",
-                        ),
-                        entryRow(context, "Bank Name", entry.bankName ?? "-"),
-                        entryRow(context, "Cheque No", entry.chequeNo ?? "-"),
-                        entryRow(
-                          context,
-                          "Cheque Amount",
-                          entry.chequeAmount?.toStringAsFixed(2) ?? "-",
-                        ),
-                        entryRow(
-                          context,
-                          "Cheque Date",
-                          entry.chequeDate != null
-                              ? dateFormat.format(entry.chequeDate!)
-                              : "-",
-                        ),
+
+                        // Payment Details (only show if payment method exists)
+                        if (entry.paymentMethod != null &&
+                            entry.paymentMethod!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Divider(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                          const SizedBox(height: 8),
+
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Theme.of(context)
+                                        .colorScheme
+                                        .secondaryContainer
+                                        .withValues(alpha: 0.3)
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              "Payment Details",
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    color: isDark
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.secondary
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          entryRow(
+                            context,
+                            "Payment Method",
+                            entry.paymentMethod!,
+                          ),
+
+                          // Cheque details (only show if payment method is cheque)
+                          if (entry.paymentMethod?.toLowerCase() ==
+                              'cheque') ...[
+                            entryRow(
+                              context,
+                              "Bank Name",
+                              entry.bankName ?? "-",
+                            ),
+                            entryRow(
+                              context,
+                              "Cheque No",
+                              entry.chequeNo ?? "-",
+                            ),
+                            entryRow(
+                              context,
+                              "Cheque Amount",
+                              entry.chequeAmount?.toStringAsFixed(2) ?? "-",
+                            ),
+                            entryRow(
+                              context,
+                              "Cheque Date",
+                              entry.chequeDate != null
+                                  ? formatChequeDateForDisplay(
+                                      entry.chequeDate!.toIso8601String(),
+                                    )
+                                  : "-",
+                            ),
+                          ],
+                        ],
+
                         const SizedBox(height: 12),
                         Divider(
                           color: Theme.of(context).colorScheme.outlineVariant,
                         ),
                         const SizedBox(height: 12),
+
+                        // System Information
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "System Information",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
                         entryRow(
                           context,
                           "Created At",
@@ -198,27 +364,44 @@ void showLedgerEntryDialog(BuildContext context, LedgerEntry entry) {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Basic Information
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "Basic Information",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
                         entryRow(context, "Voucher No", entry.voucherNo),
                         entryRow(context, "Account Name", entry.accountName),
                         entryRow(
                           context,
                           "Transaction Type",
                           entry.transactionType,
-                        ),
-                        entryRow(
-                          context,
-                          "Debit",
-                          entry.debit.toStringAsFixed(2),
-                        ),
-                        entryRow(
-                          context,
-                          "Credit",
-                          entry.credit.toStringAsFixed(2),
-                        ),
-                        entryRow(
-                          context,
-                          "Balance",
-                          entry.balance.toStringAsFixed(2),
                         ),
                         entryRow(context, "Status", entry.status),
                         entryRow(
@@ -238,33 +421,14 @@ void showLedgerEntryDialog(BuildContext context, LedgerEntry entry) {
                           entry.tags?.join(", ") ?? "-",
                         ),
                         entryRow(context, "Created By", entry.createdBy ?? "-"),
-                        entryRow(
-                          context,
-                          "Payment Method",
-                          entry.paymentMethod ?? "-",
-                        ),
-                        entryRow(context, "Bank Name", entry.bankName ?? "-"),
-                        entryRow(context, "Cheque No", entry.chequeNo ?? "-"),
-                        entryRow(
-                          context,
-                          "Cheque Amount",
-                          entry.chequeAmount?.toStringAsFixed(2) ?? "-",
-                        ),
-                        entryRow(
-                          context,
-                          "Cheque Date",
-                          entry.paymentMethod?.toLowerCase() == 'cheque' &&
-                                  entry.chequeDate != null
-                              ? DateFormat(
-                                  'dd-MM-yyyy',
-                                ).format(entry.chequeDate!)
-                              : "-",
-                        ),
+
                         const SizedBox(height: 12),
                         Divider(
                           color: Theme.of(context).colorScheme.outlineVariant,
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
+
+                        // Financial Details
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -282,7 +446,7 @@ void showLedgerEntryDialog(BuildContext context, LedgerEntry entry) {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            "Item Information",
+                            "Financial Details",
                             style: Theme.of(context).textTheme.titleMedium
                                 ?.copyWith(
                                   color: isDark
@@ -295,46 +459,219 @@ void showLedgerEntryDialog(BuildContext context, LedgerEntry entry) {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        entryRow(context, "Item Name", entry.itemName ?? "-"),
+
                         entryRow(
                           context,
-                          "Item Price/Unit",
-                          entry.itemPricePerUnit?.toStringAsFixed(2) ?? "-",
+                          "Debit",
+                          entry.debit.toStringAsFixed(2),
                         ),
                         entryRow(
                           context,
-                          "Can Weight",
-                          entry.canWeight?.toStringAsFixed(2) ?? "-",
+                          "Credit",
+                          entry.credit.toStringAsFixed(2),
                         ),
                         entryRow(
                           context,
-                          "Cans Quantity",
-                          entry.cansQuantity?.toString() ?? "-",
+                          "Balance",
+                          entry.balance.toStringAsFixed(2),
                         ),
-                        entryRow(
-                          context,
-                          "Selling Price/Can",
-                          entry.sellingPricePerCan?.toStringAsFixed(2) ?? "-",
-                        ),
-                        entryRow(
-                          context,
-                          "Balance Cans",
-                          entry.balanceCans ?? "-",
-                        ),
-                        entryRow(
-                          context,
-                          "Received Cans",
-                          entry.receivedCans ?? "-",
-                        ),
-                        entryRow(
-                          context,
-                          "Total Weight",
-                          entry.totalWeight.toStringAsFixed(2),
-                        ),
+
+                        // Payment Details (only show if payment method exists)
+                        if (entry.paymentMethod != null &&
+                            entry.paymentMethod!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Divider(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                          const SizedBox(height: 8),
+
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Theme.of(context)
+                                        .colorScheme
+                                        .secondaryContainer
+                                        .withValues(alpha: 0.3)
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              "Payment Details",
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    color: isDark
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.secondary
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          entryRow(
+                            context,
+                            "Payment Method",
+                            entry.paymentMethod!,
+                          ),
+
+                          // Cheque details (only show if payment method is cheque)
+                          if (entry.paymentMethod?.toLowerCase() ==
+                              'cheque') ...[
+                            entryRow(
+                              context,
+                              "Bank Name",
+                              entry.bankName ?? "-",
+                            ),
+                            entryRow(
+                              context,
+                              "Cheque No",
+                              entry.chequeNo ?? "-",
+                            ),
+                            entryRow(
+                              context,
+                              "Cheque Amount",
+                              entry.chequeAmount?.toStringAsFixed(2) ?? "-",
+                            ),
+                            entryRow(
+                              context,
+                              "Cheque Date",
+                              entry.chequeDate != null
+                                  ? formatChequeDateForDisplay(
+                                      entry.chequeDate!.toIso8601String(),
+                                    )
+                                  : "-",
+                            ),
+                          ],
+                        ],
+
+                        // Item Information (if exists)
+                        if (entry.itemName != null &&
+                            entry.itemName!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Divider(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                          const SizedBox(height: 12),
+
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Theme.of(context)
+                                        .colorScheme
+                                        .secondaryContainer
+                                        .withValues(alpha: 0.3)
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              "Item Information",
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    color: isDark
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.secondary
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          entryRow(context, "Item Name", entry.itemName ?? "-"),
+                          entryRow(
+                            context,
+                            "Item Price/Unit",
+                            entry.itemPricePerUnit?.toStringAsFixed(2) ?? "-",
+                          ),
+                          entryRow(
+                            context,
+                            "Can Weight",
+                            entry.canWeight?.toStringAsFixed(2) ?? "-",
+                          ),
+                          entryRow(
+                            context,
+                            "Cans Quantity",
+                            entry.cansQuantity?.toString() ?? "-",
+                          ),
+                          entryRow(
+                            context,
+                            "Selling Price/Can",
+                            entry.sellingPricePerCan?.toStringAsFixed(2) ?? "-",
+                          ),
+                          entryRow(
+                            context,
+                            "Balance Cans",
+                            entry.balanceCans ?? "-",
+                          ),
+                          entryRow(
+                            context,
+                            "Received Cans",
+                            entry.receivedCans ?? "-",
+                          ),
+                          entryRow(
+                            context,
+                            "Total Weight",
+                            entry.totalWeight.toStringAsFixed(2),
+                          ),
+                        ],
+
                         const SizedBox(height: 12),
                         Divider(
                           color: Theme.of(context).colorScheme.outlineVariant,
                         ),
+                        const SizedBox(height: 12),
+
+                        // System Information
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "System Information",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
                         entryRow(
                           context,
                           "Created At",
@@ -384,6 +721,7 @@ void showLedgerEntryDialog(BuildContext context, LedgerEntry entry) {
 
 void showItemLedgerEntryDialog(BuildContext context, ItemLedgerEntry entry) {
   final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
+  final isDark = Theme.of(context).brightness == Brightness.dark;
 
   showDialog(
     context: context,
@@ -429,6 +767,38 @@ void showItemLedgerEntryDialog(BuildContext context, ItemLedgerEntry entry) {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Basic Information
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "Basic Information",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
                         entryRow(context, "Voucher No", entry.voucherNo),
                         entryRow(context, "Ledger No", entry.ledgerNo),
                         entryRow(
@@ -437,10 +807,65 @@ void showItemLedgerEntryDialog(BuildContext context, ItemLedgerEntry entry) {
                           entry.itemId?.toString() ?? "-",
                         ),
                         entryRow(context, "Item Name", entry.itemName),
+                        entryRow(context, "Vendor Name", entry.vendorName),
                         entryRow(
                           context,
                           "Transaction Type",
                           entry.transactionType,
+                        ),
+
+                        const SizedBox(height: 12),
+                        Divider(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Financial Details
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "Financial Details",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
+                        entryRow(
+                          context,
+                          "Price per Unit",
+                          entry.pricePerKg.toStringAsFixed(2),
+                        ),
+                        entryRow(
+                          context,
+                          "Can Weight",
+                          entry.canWeight.toStringAsFixed(2),
+                        ),
+                        entryRow(
+                          context,
+                          "New Stock",
+                          entry.newStock.toStringAsFixed(2),
                         ),
                         entryRow(
                           context,
@@ -457,11 +882,45 @@ void showItemLedgerEntryDialog(BuildContext context, ItemLedgerEntry entry) {
                           "Balance",
                           entry.balance.toStringAsFixed(2),
                         ),
-                        const SizedBox(height: 10),
+
+                        const SizedBox(height: 12),
                         Divider(
                           color: Theme.of(context).colorScheme.outlineVariant,
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 12),
+
+                        // System Information
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "System Information",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
                         entryRow(
                           context,
                           "Created At",
@@ -730,4 +1189,386 @@ void confirmDeleteDialog({
       ],
     ),
   );
+}
+
+void showVendorLedgerEntryDialog(
+  BuildContext context,
+  VendorLedgerEntry entry,
+) {
+  final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
+  final dateOnlyFormat = DateFormat('dd-MM-yyyy');
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+
+  showDialog(
+    context: context,
+    barrierDismissible: true,
+    builder: (context) {
+      return Dialog(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 600, maxWidth: 500),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Vendor Ledger Entry Details",
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.close,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+                Divider(color: Theme.of(context).colorScheme.outlineVariant),
+                const SizedBox(height: 8),
+
+                // Scrollable content
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Basic Information
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "Basic Information",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
+                        entryRow(context, "Voucher No", entry.voucherNo),
+                        entryRow(context, "Vendor Name", entry.vendorName),
+                        entryRow(
+                          context,
+                          "Date",
+                          dateOnlyFormat.format(entry.date),
+                        ),
+                        entryRow(
+                          context,
+                          "Transaction Type",
+                          entry.transactionType,
+                        ),
+                        entryRow(
+                          context,
+                          "Description",
+                          entry.description ?? "-",
+                        ),
+
+                        const SizedBox(height: 12),
+                        Divider(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Financial Details
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "Financial Details",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
+                        entryRow(
+                          context,
+                          "Debit",
+                          NumberFormat('#,##0.00').format(entry.debit),
+                        ),
+                        entryRow(
+                          context,
+                          "Credit",
+                          NumberFormat('#,##0.00').format(entry.credit),
+                        ),
+                        entryRow(
+                          context,
+                          "Balance",
+                          NumberFormat('#,##0.00').format(entry.balance),
+                        ),
+
+                        // Payment Details (if applicable)
+                        if (entry.paymentMethod != null) ...[
+                          const SizedBox(height: 12),
+                          Divider(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                          const SizedBox(height: 8),
+
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Theme.of(context)
+                                        .colorScheme
+                                        .secondaryContainer
+                                        .withValues(alpha: 0.3)
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              "Payment Details",
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    color: isDark
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.secondary
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          entryRow(
+                            context,
+                            "Payment Method",
+                            entry.paymentMethod!,
+                          ),
+
+                          if (entry.paymentMethod?.toLowerCase() ==
+                              'cheque') ...[
+                            entryRow(
+                              context,
+                              "Bank Name",
+                              entry.bankName ?? "-",
+                            ),
+                            entryRow(
+                              context,
+                              "Cheque No",
+                              entry.chequeNo ?? "-",
+                            ),
+                            entryRow(
+                              context,
+                              "Cheque Amount",
+                              entry.chequeAmount != null
+                                  ? NumberFormat(
+                                      '#,##0.00',
+                                    ).format(entry.chequeAmount!)
+                                  : "-",
+                            ),
+                            entryRow(
+                              context,
+                              "Cheque Date",
+                              entry.chequeDate != null &&
+                                      entry.chequeDate!.isNotEmpty
+                                  ? formatChequeDate(entry.chequeDate!)
+                                  : "-",
+                            ),
+                          ],
+                        ],
+
+                        const SizedBox(height: 12),
+                        Divider(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        const SizedBox(height: 12),
+
+                        // System Information
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.3)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "System Information",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Theme.of(context).colorScheme.secondary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
+                        entryRow(
+                          context,
+                          "Created At",
+                          dateFormat.format(entry.createdAt),
+                        ),
+                        entryRow(
+                          context,
+                          "Updated At",
+                          dateFormat.format(entry.updatedAt),
+                        ),
+                        entryRow(
+                          context,
+                          "Vendor ID",
+                          entry.vendorId.toString(),
+                        ),
+                        if (entry.id != null)
+                          entryRow(context, "Entry ID", entry.id!.toString()),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Footer with action buttons
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: Icon(
+                      Icons.check_circle_outline,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    label: Text(
+                      "Close",
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+String formatChequeDate(String dateString) {
+  debugPrint("Input dateString: $dateString");
+  if (dateString.isEmpty) return dateString;
+
+  // First try DateTime.tryParse (it handles ISO format with time)
+  final parsedDate = DateTime.tryParse(dateString);
+  if (parsedDate != null) {
+    debugPrint("Parsed via DateTime.tryParse: $parsedDate");
+    return DateFormat('yyyy-MM-dd').format(parsedDate);
+  }
+
+  debugPrint("DateTime.tryParse failed, trying specific formats");
+
+  // Try parsing with different date-only formats
+  final formatsToTry = [
+    'dd-MM-yyyy', // 31-01-2026
+    'yyyy-MM-dd', // 2026-01-31 (without time)
+    'yyyy-MM-dd', // 2026/01/31
+    'dd-MM-yyyy', // 31/01/2026
+    'MM-dd-yyyy', // 01-31-2026
+    'yyyy-MM-dd HH:mm:ss', // 2026-01-31 00:00:00
+    'yyyy-MM-dd HH:mm:ss.SSS', // 2026-01-31 00:00:00.000
+  ];
+
+  for (final format in formatsToTry) {
+    try {
+      final parsedDate = DateFormat(format).parse(dateString);
+      debugPrint("Parsed via format '$format': $parsedDate");
+      return DateFormat('yyyy-MM-dd').format(parsedDate);
+    } catch (e) {
+      debugPrint("Failed to parse with format '$format': $e");
+      continue;
+    }
+  }
+
+  debugPrint("All parsing attempts failed, returning original: $dateString");
+  return dateString;
+}
+
+String formatChequeDateForDisplay(String? dateString) {
+  if (dateString == null || dateString.isEmpty) return "-";
+
+  try {
+    final dateTime = DateTime.parse(dateString);
+    return DateFormat('yyyy/MM/dd').format(dateTime);
+  } catch (e) {
+    try {
+      final parsedDate = DateFormat('dd-MM-yyyy').parse(dateString);
+      return DateFormat('yyyy/MM/dd').format(parsedDate);
+    } catch (e2) {
+      return dateString;
+    }
+  }
 }

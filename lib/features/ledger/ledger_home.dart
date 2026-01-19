@@ -11,6 +11,7 @@ import 'package:ledger_master/core/models/customer.dart';
 import 'package:ledger_master/core/models/item.dart';
 import 'package:ledger_master/core/models/ledger.dart';
 import 'package:ledger_master/core/repositories/cans_repository.dart';
+import 'package:ledger_master/core/utils/data_grid_extension.dart';
 import 'package:ledger_master/core/utils/responsive.dart';
 import 'package:ledger_master/core/utils/sentry_helper.dart';
 import 'package:ledger_master/features/automation/automation_screen.dart';
@@ -1318,14 +1319,15 @@ class _LedgerAddEditState extends State<LedgerAddEdit> {
 class LedgerTablePage extends StatelessWidget {
   final Ledger ledger;
   final Customer customer;
+
   const LedgerTablePage({
     super.key,
     required this.ledger,
     required this.customer,
   });
+  LedgerTableController get controller => Get.find<LedgerTableController>();
   @override
   Widget build(BuildContext context) {
-    final controller = Get.find<LedgerTableController>();
     final ledgerController = Get.find<LedgerController>();
 
     // Compute net balance locally to avoid side effects in getter (sort + refresh during build)
@@ -1575,18 +1577,27 @@ class LedgerTablePage extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   // Refresh Button
-                  IconButton(
-                    onPressed: () async {
-                      controller.isLoading.value = true;
-                      await controller.loadLedgerEntries(ledger.ledgerNo);
-                      await ledgerController.fetchLedgerEntries(
-                        ledger.ledgerNo,
-                      );
-                      controller.isLoading.value = false;
-                    },
-                    icon: Icon(Icons.refresh),
-                    tooltip: "Refresh Data",
+                  ExportHelper.exportButton<LedgerEntry>(
+                    context: context,
+                    data: controller.filteredLedgerEntries,
+                    fileName:
+                        'Ledger entries for ${ledger.accountName} from ${controller.fromDateController.text} to ${controller.toDateController.text}',
+                    tooltip:
+                        'Export Ledger from ${controller.fromDateController.text} to ${controller.toDateController.text}',
+                    customExtractor: LedgerEntry.createExtractor(),
                   ),
+                  // IconButton(
+                  //   onPressed: () async {
+                  //     controller.isLoading.value = true;
+                  //     await controller.loadLedgerEntries(ledger.ledgerNo);
+                  //     await ledgerController.fetchLedgerEntries(
+                  //       ledger.ledgerNo,
+                  //     );
+                  //     controller.isLoading.value = false;
+                  //   },
+                  //   icon: Icon(Icons.refresh),
+                  //   tooltip: "Refresh Data",
+                  // ),
                   const SizedBox(width: 8),
                   FloatingActionButton(
                     heroTag: 'ledger-fab',
@@ -1864,99 +1875,6 @@ class LedgerTablePage extends StatelessWidget {
                           ],
                         ),
                 ),
-
-                // FutureBuilder<double>(
-                //   future: CustomerRepository().getOpeningBalanceForCustomer(
-                //     customer.name,
-                //   ),
-                //   builder: (context, snapshott) {
-                //     return FutureBuilder<DebitCreditSummary>(
-                //       future: customerListController.getCustomerDebitCredit(
-                //         customer.name,
-                //         customer.type,
-                //         customer.id!,
-                //       ),
-                //       builder: (context, snapshot) {
-                //         if (snapshot.connectionState ==
-                //             ConnectionState.waiting) {
-                //           return const SizedBox(height: 20, width: 20);
-                //         }
-
-                //         if (snapshot.hasError) {
-                //           return Text(
-                //             'Error: ${snapshot.error}',
-                //             style: TextStyle(
-                //               color: Theme.of(context).colorScheme.error,
-                //             ),
-                //           );
-                //         }
-
-                //         if (!snapshot.hasData) {
-                //           return const Text('No data');
-                //         }
-
-                //         final summary = snapshot.data!;
-
-                //         // Fetch customer ledger debit separately for net balance
-                //         return FutureBuilder<DebitCreditSummary>(
-                //           future: CustomerLedgerRepository()
-                //               .fetchTotalDebitAndCredit(
-                //                 customer.name,
-                //                 customer.id!,
-                //               ),
-                //           builder: (context, customerLedgerSnapshot) {
-                //             final customerLedgerDebit =
-                //                 customerLedgerSnapshot.hasData
-                //                 ? double.tryParse(
-                //                         customerLedgerSnapshot.data!.debit,
-                //                       ) ??
-                //                       0.0
-                //                 : 0.0;
-
-                //             return Row(
-                //               mainAxisSize: MainAxisSize.min,
-                //               crossAxisAlignment: CrossAxisAlignment.start,
-                //               children: [
-                //                 if (snapshott.connectionState ==
-                //                     ConnectionState.waiting)
-                //                   const SizedBox(height: 20, width: 20)
-                //                 else
-                //                   snapshott.data != 0 || snapshott.data != 0.0
-                //                       ? totalBox(
-                //                           "Opening Bal",
-                //                           snapshott.data!,
-                //                           context,
-                //                         )
-                //                       : SizedBox.shrink(),
-                //                 const SizedBox(width: 16),
-                //                 totalBox(
-                //                   "Credit",
-                //                   double.parse(summary.credit),
-                //                   context,
-                //                 ),
-                //                 const SizedBox(width: 16),
-                //                 totalBox(
-                //                   "Debit",
-                //                   double.parse(summary.debit),
-                //                   context,
-                //                 ),
-                //                 const SizedBox(width: 16),
-                //                 totalBox(
-                //                   "Net Balance",
-                //                   ((double.parse(summary.credit) +
-                //                               (snapshott.data ?? 0)) -
-                //                           customerLedgerDebit)
-                //                       .clamp(0, double.infinity),
-                //                   context,
-                //                 ),
-                //               ],
-                //             );
-                //           },
-                //         );
-                //       },
-                //     );
-                //   },
-                // ),
               ),
             ),
           ],
@@ -2404,7 +2322,7 @@ class LedgerEntryDataSource extends DataGridSource {
 
 class LedgerTableController extends GetxController {
   Ledger? currentLedger;
-  final LedgerController ledgerController = Get.find<LedgerController>();
+  LedgerController get ledgerController => Get.find<LedgerController>();
   final DataGridController dataGridController = DataGridController();
   final fromDateController = TextEditingController();
   final toDateController = TextEditingController();
@@ -2423,6 +2341,7 @@ class LedgerTableController extends GetxController {
   final filteredLedgerEntries = <LedgerEntry>[].obs;
   final RxMap<String, double> columnWidths = <String, double>{}.obs;
   final CustomerRepository repo = CustomerRepository();
+
   var openingBalance = 0.0; // 👈 cache value for sync access
   Customer? customer;
   RxMap<String, double> map = <String, double>{
@@ -2651,7 +2570,7 @@ class LedgerTableController extends GetxController {
     });
     for (var entry in allEntries) {
       // ✅ FIXED: Balance = previous + credit - debit
-      runningBalance += entry.credit - entry.debit;
+      runningBalance += entry.credit;
       entry.balance = runningBalance;
     }
     // Trigger filter to update the view with correct balances and sorting
@@ -2768,7 +2687,7 @@ class LedgerTableController extends GetxController {
 
   double get netBalance {
     // ✅ FIXED: Net Balance = Opening Balance + Total Credit - Total Debit
-    return openingBalance + totalCredit - totalDebit;
+    return openingBalance + totalCredit;
   }
 
   double get balanceCans {
@@ -2826,6 +2745,7 @@ class LedgerTableController extends GetxController {
 class LedgerController extends GetxController {
   final LedgerRepository repo;
   final InventoryRepository inventoryRepo = InventoryRepository();
+  LedgerTableController get controller => Get.find<LedgerTableController>();
   final automationController = Get.put(AutomationController(), permanent: true);
   final CansRepository cansrepo = CansRepository();
   late final CansController cansController;
@@ -3640,8 +3560,6 @@ class LedgerController extends GetxController {
             double.tryParse(formData.debitController.text) ?? 0.0;
         final parsedCredit =
             double.tryParse(formData.creditController.text) ?? 0.0;
-        final parsedBalance =
-            double.tryParse(formData.balanceController.text) ?? 0.0;
         final newEntry = LedgerEntry(
           id: formData.originalEntry?.id,
           ledgerNo: formData.ledgerNoController.text,
@@ -3654,7 +3572,7 @@ class LedgerController extends GetxController {
           transactionType: formData.transactionType.value,
           debit: parsedDebit,
           credit: parsedCredit,
-          balance: parsedBalance,
+          balance: controller.map.value['netBalance']! + parsedCredit,
           status: formData.status.value,
           description: formData.descriptionController.text.isNotEmpty
               ? formData.descriptionController.text
@@ -3712,6 +3630,12 @@ class LedgerController extends GetxController {
                     ? formData.bankNameController.text
                     : null)
               : null,
+        );
+        debugPrint(
+          "formData.paymentMethod.value.toLowerCase() == 'cheque'${formData.paymentMethod.value.toLowerCase() == 'cheque'}",
+        );
+        debugPrint(
+          "formData.paymentMethod.value.toLowerCase() == 'cheque'${newEntry.toJson()}",
         );
         if (formData.originalEntry == null) {
           await repo.insertLedgerEntry(newEntry, ledgerNo);
@@ -3891,68 +3815,68 @@ class LedgerController extends GetxController {
       t.balance = currentBalance;
       t.status = currentBalance > 0 ? 'Debit' : 'Credit';
     }
-    for (var t in trans) {
-      if (t.type == 'ledger') {
-        final original = ledgerMap[t.id]!;
-        final updatedLedger = Ledger(
-          id: original.id,
-          ledgerNo: original.ledgerNo,
-          accountId: aid,
-          accountName: original.accountName,
-          transactionType: original.transactionType,
-          debit: t.debit,
-          credit: t.credit,
-          date: t.date,
-          description: original.description,
-          referenceNumber: original.referenceNumber,
-          category: original.category,
-          tags: original.tags,
-          createdBy: original.createdBy,
-          voucherNo: original.voucherNo,
-          balance: t.balance,
-          status: t.status,
-          createdAt: original.createdAt,
-          updatedAt: DateTime.now(),
-        );
-        await repo.updateLedger(updatedLedger);
-      } else {
-        final original = entryMap[t.id]!;
-        final updatedEntry = LedgerEntry(
-          id: original.id,
-          ledgerNo: original.ledgerNo,
-          voucherNo: original.voucherNo,
-          accountId: aid,
-          accountName: original.accountName,
-          date: t.date,
-          transactionType: original.transactionType,
-          debit: t.debit,
-          credit: t.credit,
-          balance: t.balance,
-          status: t.status,
-          description: original.description,
-          referenceNo: original.referenceNo,
-          category: original.category,
-          tags: original.tags,
-          createdBy: original.createdBy,
-          createdAt: original.createdAt,
-          updatedAt: DateTime.now(),
-          itemId: original.itemId,
-          itemName: original.itemName,
-          itemPricePerUnit: original.itemPricePerUnit,
-          canWeight: original.canWeight,
-          cansQuantity: original.cansQuantity,
-          sellingPricePerCan: original.sellingPricePerCan,
-          balanceCans: original.balanceCans.toString(),
-          receivedCans: original.receivedCans.toString(),
-          paymentMethod: original.paymentMethod,
-          chequeNo: original.chequeNo,
-          chequeAmount: original.chequeAmount,
-          chequeDate: original.chequeDate,
-          bankName: original.bankName,
-        );
-        await repo.updateLedgerEntry(updatedEntry, t.ledgerNo);
-      }
-    }
+    // for (var t in trans) {
+    //   if (t.type == 'ledger') {
+    //     final original = ledgerMap[t.id]!;
+    //     final updatedLedger = Ledger(
+    //       id: original.id,
+    //       ledgerNo: original.ledgerNo,
+    //       accountId: aid,
+    //       accountName: original.accountName,
+    //       transactionType: original.transactionType,
+    //       debit: t.debit,
+    //       credit: t.credit,
+    //       date: t.date,
+    //       description: original.description,
+    //       referenceNumber: original.referenceNumber,
+    //       category: original.category,
+    //       tags: original.tags,
+    //       createdBy: original.createdBy,
+    //       voucherNo: original.voucherNo,
+    //       balance: t.balance,
+    //       status: t.status,
+    //       createdAt: original.createdAt,
+    //       updatedAt: DateTime.now(),
+    //     );
+    //     await repo.updateLedger(updatedLedger);
+    //   } else {
+    //     final original = entryMap[t.id]!;
+    //     final updatedEntry = LedgerEntry(
+    //       id: original.id,
+    //       ledgerNo: original.ledgerNo,
+    //       voucherNo: original.voucherNo,
+    //       accountId: aid,
+    //       accountName: original.accountName,
+    //       date: t.date,
+    //       transactionType: original.transactionType,
+    //       debit: t.debit,
+    //       credit: t.credit,
+    //       balance: t.balance,
+    //       status: t.status,
+    //       description: original.description,
+    //       referenceNo: original.referenceNo,
+    //       category: original.category,
+    //       tags: original.tags,
+    //       createdBy: original.createdBy,
+    //       createdAt: original.createdAt,
+    //       updatedAt: DateTime.now(),
+    //       itemId: original.itemId,
+    //       itemName: original.itemName,
+    //       itemPricePerUnit: original.itemPricePerUnit,
+    //       canWeight: original.canWeight,
+    //       cansQuantity: original.cansQuantity,
+    //       sellingPricePerCan: original.sellingPricePerCan,
+    //       balanceCans: original.balanceCans.toString(),
+    //       receivedCans: original.receivedCans.toString(),
+    //       paymentMethod: original.paymentMethod,
+    //       chequeNo: original.chequeNo,
+    //       chequeAmount: original.chequeAmount,
+    //       chequeDate: original.chequeDate,
+    //       bankName: original.bankName,
+    //     );
+    //     await repo.updateLedgerEntry(updatedEntry, t.ledgerNo);
+    //   }
+    // }
     await fetchLedgers();
   }
 
@@ -4305,11 +4229,6 @@ class LedgerEntryAddEdit extends StatelessWidget {
                               'Saved ${saveResult.ledgerEntries.length} entries',
                             );
 
-                            // ✅ Step 2: Extra delay to ensure all database operations complete
-                            await Future.delayed(
-                              const Duration(milliseconds: 500),
-                            );
-
                             // ✅ Step 3: Clear old data
                             ledgerTableController.filteredLedgerEntries.clear();
                             ledgerTableController.ledgerController.ledgerEntries
@@ -4326,11 +4245,6 @@ class LedgerEntryAddEdit extends StatelessWidget {
 
                             debugPrint(
                               'Reloaded entries: ${ledgerTableController.filteredLedgerEntries.length}',
-                            );
-
-                            // ✅ Step 5: Delay before calculating totals
-                            await Future.delayed(
-                              const Duration(milliseconds: 300),
                             );
 
                             // ✅ Step 6: Calculate totals with fresh data
@@ -4524,6 +4438,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
         String vehicleNumber = '';
         bool askPrint = true;
         bool includeLogo = true;
+        bool includeamountDetails = true;
 
         return StatefulBuilder(
           builder: (ctx, setState) {
@@ -4578,6 +4493,30 @@ class LedgerEntryAddEdit extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 'Include Company Logo on Receipt',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: includeamountDetails,
+                              activeColor: Theme.of(
+                                context,
+                              ).colorScheme.primary,
+                              checkColor: Theme.of(
+                                context,
+                              ).colorScheme.onPrimary,
+                              onChanged: (val) {
+                                setState(() {
+                                  includeamountDetails = val ?? true;
+                                });
+                              },
+                            ),
+                            Expanded(
+                              child: Text(
+                                'Include amount details on Receipt',
                                 style: Theme.of(context).textTheme.bodyMedium,
                               ),
                             ),
@@ -4693,6 +4632,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
                               vehicleNumber,
                               context,
                               includeLogo,
+                              includeamountDetails,
                               formData,
                               ledgerNo,
                               currentCans,
@@ -4752,6 +4692,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
     String vehicleNo,
     BuildContext context,
     bool showLogo,
+    bool includeamountDetails,
     EntryFormData formData,
     String ledgerNo,
     double currentCans,
@@ -4830,7 +4771,11 @@ class LedgerEntryAddEdit extends StatelessWidget {
 
     debugPrint(data.toString());
 
-    await ReceiptPdfGenerator.generateAndPrint(data, showLogo: showLogo);
+    await ReceiptPdfGenerator.generateAndPrint(
+      data,
+      showLogo: showLogo,
+      showPrices: includeamountDetails,
+    );
   }
 
   double getNetBalance(
@@ -4991,6 +4936,11 @@ class LedgerEntryAddEdit extends StatelessWidget {
         formData.balanceCans.text = finalBalance.toStringAsFixed(0);
         formData.receivedCans.text = totalReceived.toStringAsFixed(0);
         formData.previousCans.text = previousCans.toStringAsFixed(0);
+        formData.balanceController.text = controller
+            .controller
+            .map
+            .value['netBalance']!
+            .toString();
 
         if (stepNum == 1) {
           if (isDesktop) {
@@ -5097,7 +5047,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
                           formData.transactionTypeController.text = value;
                           formData.status.value = value;
                           formData.statusController.text = value;
-                          formData._updateBalance();
+                          // formData._updateBalance();
                         },
                         validator: (value) => value == null || value.isEmpty
                             ? 'Transaction Type is required'
@@ -5175,120 +5125,137 @@ class LedgerEntryAddEdit extends StatelessWidget {
                     Expanded(child: Container()), // Empty container for layout
                   ],
                 ),
-
                 // Cheque Fields (conditionally shown)
-                if (formData.paymentMethod.value == 'cheque') ...[
-                  const SizedBox(height: 16),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: _buildTextField(
-                          context: context,
-                          controller: formData.chequeNoController,
-                          focusNode: formData.chequeNoFocusNode,
-                          label: 'Cheque No',
-                          validator: (value) => value == null || value.isEmpty
-                              ? 'Cheque No is required for cheque transactions'
-                              : null,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildTextField(
-                          context: context,
-                          controller: formData.chequeAmountController,
-                          focusNode: formData.chequeAmountFocusNode,
-                          label: 'Cheque Amount',
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          inputFormatters: [
-                            FilteringTextInputFormatter.allow(
-                              RegExp(r'^\d*\.?\d*'),
+                Obx(() {
+                  if (formData.paymentMethod.value == 'cheque') {
+                    return Column(
+                      children: [
+                        const SizedBox(height: 16),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: _buildTextField(
+                                context: context,
+                                controller: formData.chequeNoController,
+                                focusNode: formData.chequeNoFocusNode,
+                                label: 'Cheque No',
+                                validator: (value) =>
+                                    value == null || value.isEmpty
+                                    ? 'Cheque No is required for cheque transactions'
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildTextField(
+                                context: context,
+                                controller: formData.chequeAmountController,
+                                focusNode: formData.chequeAmountFocusNode,
+                                label: 'Cheque Amount',
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.allow(
+                                    RegExp(r'^\d*\.?\d*'),
+                                  ),
+                                ],
+                                validator: (value) =>
+                                    value == null || value.isEmpty
+                                    ? 'Cheque Amount is required for cheque transactions'
+                                    : null,
+                              ),
                             ),
                           ],
-                          validator: (value) => value == null || value.isEmpty
-                              ? 'Cheque Amount is required for cheque transactions'
-                              : null,
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          focusNode: formData.chequeDateFocusNode,
-                          onTap: () => controller.selectChequeDateForForm(
-                            context,
-                            index,
-                          ),
-                          child: InputDecorator(
-                            decoration: InputDecoration(
-                              labelText: 'Cheque Date',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              labelStyle: Theme.of(context).textTheme.bodySmall!
-                                  .copyWith(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withValues(alpha: 0.8),
+                        const SizedBox(height: 16),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                focusNode: formData.chequeDateFocusNode,
+                                onTap: () => controller.selectChequeDateForForm(
+                                  context,
+                                  index,
+                                ),
+                                child: InputDecorator(
+                                  decoration: InputDecoration(
+                                    labelText: 'Cheque Date',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    labelStyle: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall!
+                                        .copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withValues(alpha: 0.8),
+                                        ),
                                   ),
-                            ),
-                            child: Text(
-                              formData.chequeDate.value != null
-                                  ? DateFormat(
-                                      'dd-MM-yyyy',
-                                    ).format(formData.chequeDate.value!)
-                                  : 'Select Cheque Date',
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue:
-                              formData.bankNameController.text.isNotEmpty
-                              ? formData.bankNameController.text
-                              : null,
-                          focusNode: formData.bankNameFocusNode,
-                          style: Theme.of(context).textTheme.bodySmall,
-                          decoration: InputDecoration(
-                            labelText: 'Bank Name',
-                            labelStyle: Theme.of(context).textTheme.bodySmall!
-                                .copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface
-                                      .withValues(alpha: 0.8),
+                                  child: Text(
+                                    formData.chequeDate.value != null
+                                        ? DateFormat(
+                                            'dd-MM-yyyy',
+                                          ).format(formData.chequeDate.value!)
+                                        : 'Select Cheque Date',
+                                  ),
                                 ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
+                              ),
                             ),
-                          ),
-                          items: controller.bankList
-                              .map(
-                                (bank) => DropdownMenuItem<String>(
-                                  value: bank,
-                                  child: Text(bank),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                initialValue:
+                                    formData.bankNameController.text.isNotEmpty
+                                    ? formData.bankNameController.text
+                                    : null,
+                                focusNode: formData.bankNameFocusNode,
+                                style: Theme.of(context).textTheme.bodySmall,
+                                decoration: InputDecoration(
+                                  labelText: 'Bank Name',
+                                  labelStyle: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall!
+                                      .copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                            .withValues(alpha: 0.8),
+                                      ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
                                 ),
-                              )
-                              .toList(),
-                          onChanged: (value) {
-                            formData.bankNameController.text = value!;
-                          },
-                          validator: (value) => value == null || value.isEmpty
-                              ? 'Bank Name is required for cheque transactions'
-                              : null,
+                                items: controller.bankList
+                                    .map(
+                                      (bank) => DropdownMenuItem<String>(
+                                        value: bank,
+                                        child: Text(bank),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (value) {
+                                  formData.bankNameController.text = value!;
+                                },
+                                validator: (value) =>
+                                    value == null || value.isEmpty
+                                    ? 'Bank Name is required for cheque transactions'
+                                    : null,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    );
+                  } else {
+                    return const SizedBox.shrink();
+                  }
+                }),
               ],
             );
           } else {
@@ -5363,7 +5330,7 @@ class LedgerEntryAddEdit extends StatelessWidget {
                     formData.transactionTypeController.text = value;
                     formData.status.value = value;
                     formData.statusController.text = value;
-                    formData._updateBalance();
+                    // formData._updateBalance();
                   },
                   validator: (value) => value == null || value.isEmpty
                       ? 'Transaction Type is required'
@@ -5927,27 +5894,26 @@ class LedgerEntryAddEdit extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: _buildTextField(
-                        context: context,
-                        controller: formData.balanceController,
-                        focusNode: formData.balanceFocusNode,
-                        label: 'Balance',
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d*\.?\d*'),
-                          ),
-                        ],
-                        readOnly: true,
-                        validator: (value) => value == null || value.isEmpty
-                            ? 'Balance is required'
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
+                    // Expanded(
+                    //   child: _buildTextField(
+                    //     context: context,
+                    //     controller: formData.balanceController,
+                    //     focusNode: formData.balanceFocusNode,
+                    //     label: 'Balance',
+                    //     keyboardType: const TextInputType.numberWithOptions(
+                    //       decimal: true,
+                    //     ),
+                    //     inputFormatters: [
+                    //       FilteringTextInputFormatter.allow(
+                    //         RegExp(r'^\d*\.?\d*'),
+                    //       ),
+                    //     ],
+                    //     readOnly: true,
+                    //     validator: (value) => value == null || value.isEmpty
+                    //         ? 'Balance is required'
+                    //         : null,
+                    //   ),
+                    // ),
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         initialValue: formData.status.value.isNotEmpty
@@ -5975,6 +5941,8 @@ class LedgerEntryAddEdit extends StatelessWidget {
                             : null,
                       ),
                     ),
+                    const SizedBox(width: 16),
+                    Expanded(child: Container()),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -6383,8 +6351,8 @@ class EntryFormData {
     itemPriceController.addListener(_onCanOrQtyChanged);
     creditController.addListener(_handleCreditInputForDebitTransaction);
     debitController.addListener(_handleDebitInputForCreditTransaction);
-    creditController.addListener(_updateBalance);
-    debitController.addListener(_updateBalance);
+    // creditController.addListener(_updateBalance);
+    // debitController.addListener(_updateBalance);
 
     // Add listener to update cans quantity when account changes
     accountIdController.addListener(() {
@@ -6395,12 +6363,14 @@ class EntryFormData {
     });
 
     // New listener for payment method changes
+    // In EntryFormData constructor, update the payment method listener:
     ever(paymentMethod, (method) {
       if (method == 'cash') {
         // Clear cheque fields when switching to cash
         chequeNoController.clear();
         chequeAmountController.clear();
-        chequeDate.value = null;
+        chequeDate.value =
+            null; // ✅ Make sure to set to null, not just clear the controller
         bankNameController.clear();
       }
     });
@@ -6446,7 +6416,7 @@ class EntryFormData {
         _isUpdatingCredit = false;
       }
       _calculateSellingPrice();
-      _updateBalance();
+      // _updateBalance();
     });
   }
 
@@ -6492,18 +6462,7 @@ class EntryFormData {
 
   Future<void> _initPreviousBalance() async {
     _previousBalance = ledgerTableController.netBalance;
-    _updateBalanceFromPrevious();
-  }
-
-  void _updateBalanceFromPrevious() {
-    if (_previousBalance == null) return;
-    final credit = double.tryParse(creditController.text) ?? 0.0;
-    final newBalance = _previousBalance! + credit;
-    balanceController.text = newBalance.toStringAsFixed(2);
-  }
-
-  void _updateBalance() {
-    _updateBalanceFromPrevious();
+    // _updateBalanceFromPrevious();
   }
 
   void _calculateSellingPrice() {
@@ -6529,7 +6488,7 @@ class EntryFormData {
         debitController.text = "0";
         _isUpdatingDebit = false;
       }
-      _updateBalance();
+      // _updateBalance();
     }
   }
 

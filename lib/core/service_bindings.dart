@@ -1,9 +1,7 @@
 import 'package:get/get.dart';
 import 'package:ledger_master/core/repositories/cans_repository.dart';
-import 'package:ledger_master/core/repositories/kpi_repository.dart';
+import 'package:ledger_master/core/services/sheet_sync_service.dart'; // Add this import
 import 'package:ledger_master/features/automation/automation_screen.dart';
-import 'package:ledger_master/features/automation/csv_import_repository.dart';
-import 'package:ledger_master/features/automation/export_repository.dart';
 import 'package:ledger_master/features/bank_reconciliation/bank_repository.dart';
 import 'package:ledger_master/features/cans/cans_controller.dart';
 import 'package:ledger_master/features/customer_vendor/customer_ledger_table.dart';
@@ -21,11 +19,10 @@ import 'package:ledger_master/features/vendor_ledger/vendor_ledger_repository.da
 import 'package:ledger_master/features/vendor_ledger/vendor_ledger_table_controller.dart';
 import 'package:ledger_master/main.dart';
 
-/// Service Bindings - Initialize all repositories and controllers when app starts
 class ServiceBindings extends Bindings {
   @override
   void dependencies() {
-    // Initialize Repositories (keep existing)
+    // Initialize Repositories first
     Get.put<LedgerRepository>(LedgerRepository(), permanent: true);
     Get.put<CustomerRepository>(CustomerRepository(), permanent: true);
     Get.put<CustomerLedgerRepository>(
@@ -42,30 +39,34 @@ class ServiceBindings extends Bindings {
     Get.put<PayrollRepository>(PayrollRepository(), permanent: true);
     Get.put<BankRepository>(BankRepository(), permanent: true);
     Get.put<CansRepository>(CansRepository(), permanent: true);
-    Get.put<ExportRepository>(ExportRepository(), permanent: true);
-    Get.put<CSVImportRepository>(CSVImportRepository(), permanent: true);
-    Get.put<KPIRepository>(KPIRepository(), permanent: true);
 
-    // Initialize Controllers
+    // Initialize ThemeController first (no dependencies)
     Get.put(ThemeController(), permanent: true);
-    Get.put(LedgerController(Get.find<LedgerRepository>()), permanent: true);
-    Get.put(LedgerTableController(), permanent: true);
-    Get.put(
-      CustomerController(Get.find<CustomerRepository>()),
-      permanent: true,
-    );
-    Get.put(CustomerLedgerTableController(), permanent: true);
-    Get.put(VendorLedgerTableController(), permanent: true);
-    Get.put(CansController(CansRepository()), permanent: true);
-    Get.put(ItemLedgerTableController(), permanent: true);
 
-    // ✅ Add ItemController registration
-    Get.put(
-      ItemController(Get.find<InventoryRepository>(), null),
-      permanent: true,
+    // ✅ ADD: SheetSyncService as a GetX Service
+    Get.put(SheetSyncService(), permanent: true);
+
+    // ✅ Use lazyPut to break circular dependency
+    Get.lazyPut(() => LedgerTableController(), fenix: true);
+    Get.lazyPut(
+      () => LedgerController(Get.find<LedgerRepository>()),
+      fenix: true,
     );
 
-    Get.put(ExpensePurchaseGetxController(), permanent: true);
-    Get.put(AutomationController(), permanent: true);
+    // Then other controllers
+    Get.lazyPut(
+      () => CustomerController(Get.find<CustomerRepository>()),
+      fenix: true,
+    );
+    Get.lazyPut(() => CustomerLedgerTableController(), fenix: true);
+    Get.lazyPut(() => VendorLedgerTableController(), fenix: true);
+    Get.lazyPut(() => CansController(Get.find<CansRepository>()), fenix: true);
+    Get.lazyPut(() => ItemLedgerTableController(), fenix: true);
+    Get.lazyPut(
+      () => ItemController(Get.find<InventoryRepository>(), null),
+      fenix: true,
+    );
+    Get.lazyPut(() => ExpensePurchaseGetxController(), fenix: true);
+    Get.lazyPut(() => AutomationController(), fenix: true);
   }
 }

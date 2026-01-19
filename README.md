@@ -9,11 +9,13 @@ NAZ ENTERPRISES is a feature-rich ERP application that provides integrated solut
 ## 🎯 Core Features
 
 ### 📊 Dashboard & Analytics
+
 - **Real-time KPIs**: At-a-glance view of key performance indicators with dynamic business metrics
 - **Visual Analytics**: Graphical charts and data visualization using FL Chart library
 - **Business Intelligence**: Comprehensive dashboard providing quick insights into business health
 
 ### 💰 Financial Management
+
 - **General Ledger**: Complete double-entry bookkeeping system with debit/credit transactions
 - **Chart of Accounts**: Organized account hierarchy for different transaction categories
 - **Bank Reconciliation**: Tools to match bank statements with ledger entries
@@ -21,6 +23,7 @@ NAZ ENTERPRISES is a feature-rich ERP application that provides integrated solut
 - **Financial Reporting**: Generate comprehensive financial statements and reports
 
 ### 👥 Customer & Vendor Management
+
 - **Unified Contact Management**: Single interface for managing both customers and vendors
 - **Customer Profiles**: Maintain customer details including address, mobile, NTN, opening balance
 - **Vendor Tracking**: Track vendor information and payment history
@@ -28,12 +31,14 @@ NAZ ENTERPRISES is a feature-rich ERP application that provides integrated solut
 - **Customer Ledger Table**: Detailed transaction view for each customer with running balances
 
 ### 📝 Sales & Invoicing
+
 - **Invoice Creation**: Create and manage sales invoices with line items
 - **Invoice Tracking**: Monitor invoice status, payments, and delivery
 - **Sales Reporting**: Track sales performance and customer transactions
 - **Invoice Repository**: Comprehensive invoice history and audit trail
 
 ### 📦 Inventory Management
+
 - **Product Management**: Organize products with categorization and detailed attributes
 - **Stock Tracking**: Real-time inventory levels and stock movements
 - **Pricing**: Manage cost price and selling price for each item
@@ -43,12 +48,14 @@ NAZ ENTERPRISES is a feature-rich ERP application that provides integrated solut
 - **Item Ledger**: Track complete history of each item's transactions
 
 ### 🛢️ Cans Management
+
 - **Returnable Asset Tracking**: Specialized module for tracking cans and similar returnable assets
 - **Opening & Current Balance**: Maintain can counts with opening and closing balances
 - **Cans Entries**: Record can transactions with vouchers and descriptions
 - **Cans Ledger**: Complete history of can movements by account
 
 ### 💳 Purchases & Expenses
+
 - **Purchase Orders**: Create and track purchase orders
 - **Expense Management**: Record and categorize business expenses
 - **Payment Methods**: Track payments via different payment methods
@@ -56,18 +63,21 @@ NAZ ENTERPRISES is a feature-rich ERP application that provides integrated solut
 - **Purchase History**: Complete audit trail of all purchases
 
 ### 👔 Payroll Management
+
 - **Employee Management**: Maintain employee profiles and details
 - **Payroll Processing**: Calculate and process employee salaries
 - **Payroll History**: Track payment history and deductions
 - **Employee Records**: Comprehensive employee database
 
 ### 🔄 Automation & Data Management
+
 - **CSV Import**: Import data from CSV files for bulk operations
 - **Excel Export**: Export reports and data to Excel format
 - **Data Migration**: Automate data import/export workflows
 - **Batch Operations**: Perform bulk operations on records
 
 ### 📑 Reporting & Analytics
+
 - **Sales Reports**: Detailed sales analysis and trends
 - **Purchase Reports**: Comprehensive purchase tracking and analytics
 - **Inventory Reports**: Stock levels, valuations, and movements
@@ -77,6 +87,7 @@ NAZ ENTERPRISES is a feature-rich ERP application that provides integrated solut
 ## 🛠️ Technical Architecture
 
 ### Tech Stack
+
 - **Framework**: Flutter 3.0+ (Cross-platform desktop application)
 - **Language**: Dart 3.9.0+
 - **State Management**: GetX (Reactive state management and dependency injection)
@@ -181,7 +192,9 @@ lib/
 ```
 
 ### Database Schema
+
 The application uses SQLite with the following core tables:
+
 - `ledger` - General ledger entries (debit/credit transactions)
 - `ledger_entries_*` - Dynamic tables for individual ledger entries
 - `customer` - Customer information and profiles
@@ -193,6 +206,7 @@ The application uses SQLite with the following core tables:
 - Dynamic tables for customer/item ledger entries
 
 ### Architecture Highlights
+
 - **MVC Pattern**: Repositories handle business logic, UI handles presentation
 - **GetX State Management**: Lazy-loaded dependencies, reactive UI updates
 - **Repository Pattern**: Centralized database access and business logic
@@ -205,11 +219,13 @@ The application uses SQLite with the following core tables:
 ### Prerequisites
 
 Ensure you have the following installed:
+
 - **Flutter SDK**: 3.0.0 or higher
 - **Dart SDK**: 3.9.0 or higher (included with Flutter)
 - **Windows/Linux/macOS**: Desktop development enabled
 
 Verify your setup:
+
 ```bash
 flutter --version
 dart --version
@@ -220,7 +236,7 @@ flutter config --enable-macos-desktop    # For macOS
 
 ### Installation & Setup
 
-```bash
+````bash
 # 1. Clone the repository
 git clone https://github.com/umerfarooq123-codei/naz.github.io.git
 cd naz_enterprises
@@ -232,12 +248,6 @@ flutter pub get
 # For Windows:
 flutter run -d windows
 
-# For Linux:
-flutter run -d linux
-
-# For macOS:
-flutter run -d macos
-```
 
 ### Building for Production
 
@@ -253,11 +263,12 @@ flutter build linux --release
 # Build macOS app
 flutter build macos --release
 # Output: build/macos/Build/Products/Release/
-```
+````
 
 ### Database Setup
 
 The application uses SQLite database stored at:
+
 - **Windows**: `C:\Users\<Username>\AppData\Local\naz_enterprises\ledger_app.db`
 - **Linux**: `~/.local/share/naz_enterprises/ledger_app.db`
 - **macOS**: `~/Library/Application Support/naz_enterprises/ledger_app.db`
@@ -268,6 +279,7 @@ The application uses SQLite database stored at:
 ## 📖 Usage Guide
 
 ### Starting the Application
+
 1. Run `flutter run -d windows` (or your target platform)
 2. The app opens with the Dashboard view displaying KPIs
 3. Navigate between modules using the sidebar menu
@@ -275,6 +287,7 @@ The application uses SQLite database stored at:
 ### Core Workflows
 
 #### Creating a Ledger Entry
+
 1. Go to **Ledger** module
 2. Select an account or create a new one
 3. Enter transaction details (debit/credit amounts, date, description)
@@ -282,12 +295,14 @@ The application uses SQLite database stored at:
 5. Save - entry automatically updates account balances
 
 #### Managing Customers/Vendors
+
 1. Open **Customer & Vendor** module
 2. Create new contact or edit existing
 3. View individual ledger showing all transactions
 4. Track opening balances and outstanding amounts
 
 #### Processing Sales
+
 1. Navigate to **Sales & Invoicing**
 2. Create new invoice with customer and items
 3. Specify quantities and prices
@@ -295,6 +310,7 @@ The application uses SQLite database stored at:
 5. Link to ledger for financial reporting
 
 #### Inventory Operations
+
 1. Go to **Inventory** module
 2. Add/edit items with cost and selling prices
 3. Track stock levels and movements
@@ -302,18 +318,21 @@ The application uses SQLite database stored at:
 5. View complete item ledger history
 
 #### Expense Tracking
+
 1. Open **Purchases & Expenses**
 2. Record expense with category and payment method
 3. Attach reference numbers for audit trail
 4. View expense reports by category
 
 #### Payroll Processing
+
 1. Access **Payroll** module
 2. Maintain employee records
 3. Process monthly salaries
 4. View payment history and deductions
 
 #### Data Import/Export
+
 1. Go to **Automation** module
 2. **Export**: Select data type (ledger, customers, inventory) and export to CSV/Excel
 3. **Import**: Upload CSV file with proper format to import bulk data
@@ -383,11 +402,13 @@ await db.delete('customer', where: 'id = ?', whereArgs: [id]);
 ## 📊 Key Classes & Controllers
 
 ### Service Bindings
+
 - Initializes all repositories lazily using GetX
 - Registers controllers for dependency injection
 - Called at app startup via `ServiceBindings()`
 
 ### Core Repositories
+
 - `LedgerRepository` - General ledger operations
 - `CustomerRepository` - Customer CRUD and ledger
 - `InventoryRepository` - Item and stock management
@@ -401,6 +422,7 @@ await db.delete('customer', where: 'id = ?', whereArgs: [id]);
 - `KPIRepository` - Dashboard metrics calculation
 
 ### UI Controllers
+
 - `LedgerController` - Ledger module state
 - `CustomerController` - Customer management state
 - `ItemController` - Inventory management state
@@ -411,16 +433,19 @@ await db.delete('customer', where: 'id = ?', whereArgs: [id]);
 ## 🐛 Troubleshooting
 
 ### Database Issues
+
 - **"Database locked" error**: Check for concurrent access; app uses WAL mode for better concurrency
 - **Missing tables**: Ensure database version is updated; reinstall app to reset
 - **Data not persisting**: Verify SQLite is properly initialized; check database path
 
 ### UI Issues
+
 - **Blank screens**: Check GetX dependencies are properly initialized in `ServiceBindings`
 - **Responsive layout issues**: Verify Flutter ScreenUtil configuration
 - **Theme not changing**: Clear SharedPreferences cache and restart app
 
 ### Performance Issues
+
 - **Slow data loading**: Check database indexes; consider pagination for large datasets
 - **High memory usage**: Monitor large DataGrid loads; implement virtualization
 - **UI lag**: Profile with Flutter DevTools; check for blocking main thread operations

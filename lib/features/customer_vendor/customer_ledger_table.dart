@@ -222,16 +222,7 @@ class CustomerLedgerTablePage extends StatelessWidget {
                         columnWidthMode: ColumnWidthMode.fill,
                         gridLinesVisibility: GridLinesVisibility.both,
                         headerGridLinesVisibility: GridLinesVisibility.both,
-                        onCellTap: (DataGridCellTapDetails details) {
-                          if (details.rowColumnIndex.rowIndex > 0) {
-                            final entry =
-                                controller.filteredLedgerEntries[details
-                                        .rowColumnIndex
-                                        .rowIndex -
-                                    1];
-                            showCustomerLedgerEntryDialog(context, entry);
-                          }
-                        },
+
                         placeholder: Center(
                           child: Text(
                             "No data available",
@@ -558,18 +549,24 @@ class CustomerLedgerDataSource extends DataGridSource {
           );
         }
 
-        return Container(
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6.0),
-            child: Text(
-              cell.value.toString(),
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall!.copyWith(
-                fontWeight: cell.columnName == 'amount'
-                    ? FontWeight.w500
-                    : null,
-                color: Theme.of(context).colorScheme.onSurface,
+        return InkWell(
+          onTap: () {
+            showCustomerLedgerEntryDialog(context, entry);
+          },
+
+          child: Container(
+            alignment: Alignment.center,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6.0),
+              child: Text(
+                cell.value.toString(),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall!.copyWith(
+                  fontWeight: cell.columnName == 'amount'
+                      ? FontWeight.w500
+                      : null,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
             ),
           ),

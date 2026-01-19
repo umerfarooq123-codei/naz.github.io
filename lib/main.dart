@@ -8,11 +8,11 @@ import 'package:intl/intl.dart';
 import 'package:ledger_master/core/models/item.dart';
 import 'package:ledger_master/core/service_bindings.dart';
 import 'package:ledger_master/core/theme/app_theme.dart';
+import 'package:ledger_master/core/utils/data_grid_extension.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/inventory/item_list.dart';
 import 'package:ledger_master/features/ledger/ledger_home.dart';
 import 'package:ledger_master/features/purchases_expenses/purchase_and_expense_list_and_form.dart';
-import 'package:ledger_master/features/temp.dart';
 import 'package:ledger_master/shared/widgets/navigation_files.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -51,7 +51,7 @@ class ThemeController extends GetxController {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
+  ExportRegistryInitializer.initializeCommonExtractors();
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
 
@@ -560,15 +560,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                 color: Theme.of(context).colorScheme.onSurface,
                 fontSize: TextSizes.heading, // Retain
               ),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => TestSyncScreen()),
-                );
-              },
-              child: Text('Test Sync'),
             ),
             const SizedBox(height: 20),
             GridView.count(
