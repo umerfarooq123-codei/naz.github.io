@@ -71,7 +71,8 @@ class Cans {
       id: map['id'],
       accountName: map['accountName'] ?? '',
       accountId: map['accountId'],
-      openingBalanceCans: (map['openingBalanceCans'] as num?)?.toDouble() ?? 0.0,
+      openingBalanceCans:
+          (map['openingBalanceCans'] as num?)?.toDouble() ?? 0.0,
       currentCans: (map['currentCans'] as num?)?.toDouble() ?? 0.0,
       totalCans: (map['totalCans'] as num?)?.toDouble() ?? 0.0,
       receivedCans: (map['receivedCans'] as num?)?.toDouble() ?? 0.0,
@@ -218,8 +219,7 @@ class CansEntry {
       voucherNo: map['voucherNo'] ?? '',
       accountId: map['accountId'],
       accountName: map['accountName'] ?? '',
-      date:
-          map['date'] != null ? DateTime.parse(map['date']) : DateTime.now(),
+      date: map['date'] != null ? DateTime.parse(map['date']) : DateTime.now(),
       transactionType: map['transactionType'] ?? '',
       currentCans: (map['currentCans'] as num?)?.toDouble() ?? 0.0,
       receivedCans: (map['receivedCans'] as num?)?.toDouble() ?? 0.0,

@@ -1419,8 +1419,10 @@ void showVendorLedgerEntryDialog(
                               context,
                               "Cheque Date",
                               entry.chequeDate != null &&
-                                      entry.chequeDate!.isNotEmpty
-                                  ? formatChequeDate(entry.chequeDate!)
+                                      entry.chequeDate!.toString().isNotEmpty
+                                  ? formatChequeDate(
+                                      entry.chequeDate!.toString(),
+                                    )
                                   : "-",
                             ),
                           ],
@@ -1472,7 +1474,7 @@ void showVendorLedgerEntryDialog(
                         entryRow(
                           context,
                           "Updated At",
-                          dateFormat.format(entry.updatedAt),
+                          dateFormat.format(entry.updatedAt!),
                         ),
                         entryRow(
                           context,

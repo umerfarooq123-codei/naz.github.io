@@ -9,7 +9,7 @@ class DBHelper {
   static final DBHelper _instance = DBHelper._internal();
   factory DBHelper() => _instance;
   DBHelper._internal();
-  final int version = 55; // Incremented version to update cans table schema
+  final int version = 11; // Incremented version to update cans table schema
   static Database? _database;
 
   Future<Database> get database async {

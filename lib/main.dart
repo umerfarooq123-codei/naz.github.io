@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fl_chart/fl_chart.dart';
@@ -50,38 +51,75 @@ class ThemeController extends GetxController {
 }
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  ExportRegistryInitializer.initializeCommonExtractors();
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    await windowManager.ensureInitialized();
+  // Setup error handling before anything else
+  FlutterError.onError = (FlutterErrorDetails details) {
+    if (kReleaseMode) {
+      // In release mode, capture to Sentry
+      Sentry.captureException(details.exception, stackTrace: details.stack);
+    } else {
+      // In debug mode, use default error handler
+      FlutterError.presentError(details);
+    }
+  };
 
-    WindowOptions windowOptions = const WindowOptions(
-      size: Size(1280, 720),
-      center: true,
-    );
+  // Handle async errors
+  PlatformDispatcher.instance.onError = (error, stack) {
+    if (kReleaseMode) {
+      Sentry.captureException(error, stackTrace: stack);
+    }
+    return true;
+  };
 
-    windowManager.waitUntilReadyToShow(windowOptions, () async {
-      await windowManager.maximize();
-      await windowManager.show();
-      await windowManager.focus();
-    });
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  }
+  // Handle zone errors
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      ExportRegistryInitializer.initializeCommonExtractors();
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await windowManager.ensureInitialized();
 
-  // Initialize all repositories and controllers via service bindings
-  Get.put(ServiceBindings(), permanent: true);
+        WindowOptions windowOptions = const WindowOptions(
+          size: Size(1280, 720),
+          center: true,
+        );
 
-  if (kReleaseMode) {
-    await SentryFlutter.init((options) {
-      options.dsn =
-          'https://27a1cdd081c8d3c7be512fe49c8ebb9c@o4510713545490432.ingest.us.sentry.io/4510713547522048';
-      options.sendDefaultPii = true;
-      options.tracesSampleRate = 0.1;
-    }, appRunner: () => runApp(const MyApp()));
-  } else {
-    runApp(const MyApp());
-  }
+        windowManager.waitUntilReadyToShow(windowOptions, () async {
+          await windowManager.maximize();
+          await windowManager.show();
+          await windowManager.focus();
+        });
+        sqfliteFfiInit();
+        databaseFactory = databaseFactoryFfi;
+      }
+
+      // Initialize all repositories and controllers via service bindings
+      Get.put(ServiceBindings(), permanent: true);
+
+      if (kReleaseMode) {
+        await SentryFlutter.init((options) {
+          options.dsn =
+              'https://27a1cdd081c8d3c7be512fe49c8ebb9c@o4510713545490432.ingest.us.sentry.io/4510713547522048';
+          options.sendDefaultPii = true;
+          options.tracesSampleRate = 0.1;
+          // Capture breadcrumbs for better context
+          options.maxBreadcrumbs = 200;
+          // Enable environment metadata
+          options.environment = kReleaseMode ? 'production' : 'development';
+          // Attach stack traces
+          options.attachStacktrace = true;
+        }, appRunner: () => runApp(const MyApp()));
+      } else {
+        runApp(const MyApp());
+      }
+    },
+    (error, stack) {
+      if (kReleaseMode) {
+        Sentry.captureException(error, stackTrace: stack);
+      } else {
+        debugPrintStack(stackTrace: stack, label: 'Uncaught Error: $error');
+      }
+    },
+  );
 }
 
 class MyApp extends StatelessWidget {

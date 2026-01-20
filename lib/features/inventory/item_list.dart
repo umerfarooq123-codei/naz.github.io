@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:ledger_master/core/utils/app_snackbars.dart';
 import 'package:ledger_master/features/customer_vendor/customer_list.dart';
 import 'package:ledger_master/features/customer_vendor/customer_repository.dart';
 import 'package:ledger_master/features/sales_invoicing/invoice_generator.dart';
@@ -191,7 +192,7 @@ class ItemController extends GetxController {
       }
     } catch (e) {
       print('Error saving item: $e');
-      Get.snackbar('Error', 'Failed to save item: $e');
+      AppSnackBars.showError('Error', 'Failed to save item: $e');
     }
   }
 

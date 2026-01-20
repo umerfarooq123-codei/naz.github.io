@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:ledger_master/core/services/sheet_sync_service.dart';
+import 'package:ledger_master/core/utils/app_snackbars.dart';
 import 'package:ledger_master/main.dart';
 import 'package:ledger_master/shared/components/constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -146,31 +147,14 @@ class AutomationController extends GetxController {
         }
       }
 
-      Get.snackbar(
+      AppSnackBars.showSuccess(
         'Backup Sync Enabled',
         'Automatic backup sync is now active.\nInterval: $timeText',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green.withValues(alpha: 0.9),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-        margin: const EdgeInsets.all(16),
-        borderRadius: 8,
-        icon: const Icon(Icons.sync, color: Colors.white),
-        shouldIconPulse: true,
       );
     } else {
-      Get.snackbar(
+      AppSnackBars.showWarning(
         'Backup Sync Disabled',
         'Automatic backup sync has been turned off.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withValues(
-          alpha: 0.9,
-        ), // Fixed: .withOpacity instead of .withValues
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
-        margin: const EdgeInsets.all(16),
-        borderRadius: 8,
-        icon: const Icon(Icons.sync_disabled, color: Colors.white),
       );
     }
   }
@@ -386,6 +370,7 @@ class AutomationScreen extends StatelessWidget {
 
                   // Backup Sync Section
                   Container(
+                    width: 350,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: surfaceColor,
@@ -433,11 +418,9 @@ class AutomationScreen extends StatelessWidget {
                                 await controller.syncService
                                     .manualSyncWithDialog();
                               } catch (e) {
-                                Get.snackbar(
+                                AppSnackBars.showError(
                                   'Error',
                                   'Sync service not available: $e',
-                                  backgroundColor: Colors.red,
-                                  colorText: Colors.white,
                                 );
                               }
                             },
@@ -453,6 +436,32 @@ class AutomationScreen extends StatelessWidget {
                             ),
                           ),
                         ),
+                        // Container(
+                        //   width: double.infinity,
+                        //   margin: const EdgeInsets.only(bottom: 16),
+                        //   child: ElevatedButton.icon(
+                        //     onPressed: () async {
+                        //       try {
+                        //         await controller.syncService.importWithDialog();
+                        //       } catch (e) {
+                        //         AppSnackBars.showError(
+                        //           'Error',
+                        //           'Sync service not available: $e',
+                        //         );
+                        //       }
+                        //     },
+                        //     icon: const Icon(Icons.sync, size: 20),
+                        //     label: const Text('Import Data'),
+                        //     style: ElevatedButton.styleFrom(
+                        //       backgroundColor: primaryColor,
+                        //       foregroundColor: Colors.white,
+                        //       padding: const EdgeInsets.symmetric(vertical: 16),
+                        //       shape: RoundedRectangleBorder(
+                        //         borderRadius: BorderRadius.circular(8),
+                        //       ),
+                        //     ),
+                        //   ),
+                        // ),
 
                         // Sync Settings Card
                         Obx(

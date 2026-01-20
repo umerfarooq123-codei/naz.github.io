@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 import 'package:ledger_master/core/models/cans.dart';
 import 'package:ledger_master/core/repositories/cans_repository.dart';
+import 'package:ledger_master/core/utils/app_snackbars.dart';
 
 class CansController extends GetxController {
   final CansRepository repository;
@@ -29,7 +30,7 @@ class CansController extends GetxController {
       cans.assignAll(result);
       _applyFilters();
     } catch (e) {
-      Get.snackbar('Error', 'Failed to fetch cans tables: $e');
+      AppSnackBars.showError('Error', 'Failed to fetch cans tables: $e');
     } finally {
       isLoading.value = false;
     }
@@ -69,9 +70,9 @@ class CansController extends GetxController {
         this.cans[index] = cans;
       }
       _applyFilters();
-      Get.snackbar('Success', 'Cans table updated successfully');
+      AppSnackBars.showSuccess('Success', 'Cans table updated successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to update cans table: $e');
+      AppSnackBars.showError('Error', 'Failed to update cans table: $e');
     }
   }
 
@@ -82,9 +83,9 @@ class CansController extends GetxController {
       cans.removeWhere((c) => c.id == id);
       filteredCans.removeWhere((c) => c.id == id);
       // No need to call _applyFilters() since we've manually updated filteredCans
-      Get.snackbar('Success', 'Cans table deleted successfully');
+      AppSnackBars.showSuccess('Success', 'Cans table deleted successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to delete cans table: $e');
+      AppSnackBars.showError('Error', 'Failed to delete cans table: $e');
     }
   }
 
@@ -135,7 +136,7 @@ class CansController extends GetxController {
       cansEntries.assignAll(result);
       applyEntriesFilters();
     } catch (e) {
-      Get.snackbar('Error', 'Failed to fetch cans entries: $e');
+      AppSnackBars.showError('Error', 'Failed to fetch cans entries: $e');
     } finally {
       isLoading.value = false;
     }
@@ -165,9 +166,9 @@ class CansController extends GetxController {
       final newEntry = entry.copyWith(id: id);
       cansEntries.add(newEntry);
       applyEntriesFilters();
-      Get.snackbar('Success', 'Cans entry added successfully');
+      AppSnackBars.showSuccess('Success', 'Cans entry added successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to add cans entry: $e');
+      AppSnackBars.showError('Error', 'Failed to add cans entry: $e');
       rethrow;
     }
   }
@@ -181,9 +182,9 @@ class CansController extends GetxController {
         cansEntries[index] = entry;
       }
       applyEntriesFilters();
-      Get.snackbar('Success', 'Cans entry updated successfully');
+      AppSnackBars.showSuccess('Success', 'Cans entry updated successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to update cans entry: $e');
+      AppSnackBars.showError('Error', 'Failed to update cans entry: $e');
       rethrow;
     }
   }
@@ -194,9 +195,9 @@ class CansController extends GetxController {
       await repository.deleteCansEntry(id);
       cansEntries.removeWhere((e) => e.id == id);
       applyEntriesFilters();
-      Get.snackbar('Success', 'Cans entry deleted successfully');
+      AppSnackBars.showSuccess('Success', 'Cans entry deleted successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to delete cans entry: $e');
+      AppSnackBars.showError('Error', 'Failed to delete cans entry: $e');
       rethrow;
     }
   }

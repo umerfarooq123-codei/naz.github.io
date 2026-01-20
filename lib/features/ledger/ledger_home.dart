@@ -4498,30 +4498,30 @@ class LedgerEntryAddEdit extends StatelessWidget {
                             ),
                           ],
                         ),
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: includeamountDetails,
-                              activeColor: Theme.of(
-                                context,
-                              ).colorScheme.primary,
-                              checkColor: Theme.of(
-                                context,
-                              ).colorScheme.onPrimary,
-                              onChanged: (val) {
-                                setState(() {
-                                  includeamountDetails = val ?? true;
-                                });
-                              },
-                            ),
-                            Expanded(
-                              child: Text(
-                                'Include amount details on Receipt',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ),
-                          ],
-                        ),
+                        // Row(
+                        //   children: [
+                        //     Checkbox(
+                        //       value: includeamountDetails,
+                        //       activeColor: Theme.of(
+                        //         context,
+                        //       ).colorScheme.primary,
+                        //       checkColor: Theme.of(
+                        //         context,
+                        //       ).colorScheme.onPrimary,
+                        //       onChanged: (val) {
+                        //         setState(() {
+                        //           includeamountDetails = val ?? true;
+                        //         });
+                        //       },
+                        //     ),
+                        //     Expanded(
+                        //       child: Text(
+                        //         'Include amount details on Receipt',
+                        //         style: Theme.of(context).textTheme.bodyMedium,
+                        //       ),
+                        //     ),
+                        //   ],
+                        // ),
                       ],
                     ),
               actions: [
@@ -4632,7 +4632,8 @@ class LedgerEntryAddEdit extends StatelessWidget {
                               vehicleNumber,
                               context,
                               includeLogo,
-                              includeamountDetails,
+                              true,
+                              // includeamountDetails,
                               formData,
                               ledgerNo,
                               currentCans,
