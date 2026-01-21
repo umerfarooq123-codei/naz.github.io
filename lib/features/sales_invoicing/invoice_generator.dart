@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -343,9 +344,12 @@ class ReceiptPdfGenerator {
           if (showPrices)
             buildTableCell('Price', isHeader: true, boldStyle: boldStyle),
           buildTableCell('Cans', isHeader: true, boldStyle: boldStyle),
-          buildTableCell('Type', isHeader: true, boldStyle: boldStyle),
-          buildTableCell('Description', isHeader: true, boldStyle: boldStyle),
-          buildTableCell('Amount', isHeader: true, boldStyle: boldStyle),
+          if (showPrices)
+            buildTableCell('Type', isHeader: true, boldStyle: boldStyle),
+          if (showPrices)
+            buildTableCell('Description', isHeader: true, boldStyle: boldStyle),
+          if (showPrices)
+            buildTableCell('Amount', isHeader: true, boldStyle: boldStyle),
         ],
       ),
     ];
@@ -364,12 +368,14 @@ class ReceiptPdfGenerator {
               formatNumber(item.canQuantity),
               normalStyle: normalStyle,
             ),
-            buildTableCell(item.type, normalStyle: normalStyle),
-            buildTableCell(
-              showPrices ? item.description : "-",
-              normalStyle: normalStyle,
-            ),
-            buildTableCell(formatNumber(item.amount), normalStyle: normalStyle),
+            if (showPrices) buildTableCell(item.type, normalStyle: normalStyle),
+            if (showPrices)
+              buildTableCell(item.description, normalStyle: normalStyle),
+            if (showPrices)
+              buildTableCell(
+                formatNumber(item.amount),
+                normalStyle: normalStyle,
+              ),
           ],
         ),
       );
@@ -535,11 +541,11 @@ class ReceiptPdfGenerator {
             header,
             pw.SizedBox(height: 10),
             pw.Center(child: itemsTable),
-            if (showCansTable || showPrices) ...[
+            if (showCansTable) ...[
               pw.SizedBox(height: 10),
               pw.Center(child: cansTable),
             ],
-            footer,
+            if (showPrices) footer,
           ],
         ),
       ],
@@ -567,6 +573,7 @@ class ReceiptPdfGenerator {
       boldStyle,
       logo,
       showLogo: showLogo,
+      showPrices: showPrices, // 👈 ADD THIS
     );
 
     final receiverCopy = await buildReceiptContent(
@@ -577,6 +584,7 @@ class ReceiptPdfGenerator {
       boldStyle,
       logo,
       showLogo: showLogo,
+      showPrices: showPrices, // 👈 ADD THIS
     );
 
     pdf.addPage(
@@ -654,8 +662,13 @@ class ReceiptPdfGenerator {
   static Future<String> saveToTempFile(
     ReceiptData data, {
     bool showLogo = true,
+    bool showPrices = true,
   }) async {
-    final pdf = await buildPdf(data, showLogo: showLogo);
+    final pdf = await buildPdf(
+      data,
+      showLogo: showLogo,
+      showPrices: showPrices,
+    );
     final Uint8List bytes = await pdf.save();
     final Directory tempDir = await getTemporaryDirectory();
     final String filePath =
@@ -685,7 +698,16 @@ class ReceiptPdfGenerator {
     bool showLogo = true,
     bool showPrices = true,
   }) async {
-    await saveToTempFile(data, showLogo: showLogo);
-    await printPdf(data, showLogo: showLogo);
+    debugPrint("showLogo $showLogo and showPrices $showPrices");
+    await saveToTempFile(
+      data,
+      showLogo: showLogo,
+      showPrices: showPrices, // 👈 Add this
+    );
+    await printPdf(
+      data,
+      showLogo: showLogo,
+      showPrices: showPrices, // 👈 Add this
+    );
   }
 }

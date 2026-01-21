@@ -1474,7 +1474,7 @@ void showVendorLedgerEntryDialog(
                         entryRow(
                           context,
                           "Updated At",
-                          dateFormat.format(entry.updatedAt!),
+                          dateFormat.format(entry.updatedAt),
                         ),
                         entryRow(
                           context,

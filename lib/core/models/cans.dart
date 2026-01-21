@@ -1,6 +1,8 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
+
 /// Model representing a Cans table for a customer
 class Cans {
   final int? id;
@@ -67,22 +69,95 @@ class Cans {
 
   /// Creates a model instance from a Map (database or API response)
   factory Cans.fromMap(Map<String, dynamic> map) {
-    return Cans(
-      id: map['id'],
-      accountName: map['accountName'] ?? '',
-      accountId: map['accountId'],
-      openingBalanceCans:
-          (map['openingBalanceCans'] as num?)?.toDouble() ?? 0.0,
-      currentCans: (map['currentCans'] as num?)?.toDouble() ?? 0.0,
-      totalCans: (map['totalCans'] as num?)?.toDouble() ?? 0.0,
-      receivedCans: (map['receivedCans'] as num?)?.toDouble() ?? 0.0,
-      insertedDate: map['insertedDate'] != null
-          ? DateTime.parse(map['insertedDate'])
-          : DateTime.now(),
-      updatedDate: map['updatedDate'] != null
-          ? DateTime.parse(map['updatedDate'])
-          : DateTime.now(),
-    );
+    try {
+      // Debug logging
+      debugPrint('Cans.fromMap received: ${map.keys.toList()}');
+      debugPrint(
+        'accountId type: ${map['accountId']?.runtimeType}, value: ${map['accountId']}',
+      );
+      debugPrint(
+        'receivedCans type: ${map['receivedCans']?.runtimeType}, value: ${map['receivedCans']}',
+      );
+      debugPrint(
+        'insertedDate type: ${map['insertedDate']?.runtimeType}, value: ${map['insertedDate']}',
+      );
+      debugPrint(
+        'updatedDate type: ${map['updatedDate']?.runtimeType}, value: ${map['updatedDate']}',
+      );
+
+      // Helper function to parse date
+      DateTime parseDate(dynamic value) {
+        if (value == null) return DateTime.now();
+        if (value is DateTime) return value;
+        if (value is String) {
+          try {
+            return DateTime.parse(value);
+          } catch (e) {
+            debugPrint('Error parsing date string $value: $e');
+            return DateTime.now();
+          }
+        }
+        if (value is int) {
+          return DateTime.fromMillisecondsSinceEpoch(value);
+        }
+        return DateTime.now();
+      }
+
+      return Cans(
+        id: map['id'],
+        accountName: map['accountName'] ?? '',
+        accountId: _parseCansAccountId(map['accountId']),
+        openingBalanceCans: _parseCansDouble(map['openingBalanceCans']),
+        currentCans: _parseCansDouble(map['currentCans']),
+        totalCans: _parseCansDouble(map['totalCans']),
+        receivedCans: _parseCansDouble(map['receivedCans']),
+        insertedDate: parseDate(map['insertedDate']),
+        updatedDate: parseDate(map['updatedDate']),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error in Cans.fromMap: $e');
+      debugPrint('Stack trace: $stackTrace');
+      debugPrint('Problematic map: $map');
+      rethrow;
+    }
+  }
+
+  static int? _parseCansAccountId(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) {
+      if (value.toLowerCase() == 'cust') return 1;
+      return int.tryParse(value);
+    }
+    return null;
+  }
+
+  static double _parseCansDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      // Handle JSON array format like "[0]"
+      if (value.startsWith('[') && value.endsWith(']')) {
+        try {
+          final jsonArray = jsonDecode(value) as List;
+          if (jsonArray.isNotEmpty) {
+            return (jsonArray.first as num).toDouble();
+          }
+        } catch (_) {
+          // Fall through to string parsing
+        }
+      }
+      return double.tryParse(value) ?? 0.0;
+    }
+    if (value is List) {
+      if (value.isNotEmpty) {
+        final first = value.first;
+        if (first is num) return first.toDouble();
+      }
+    }
+    return 0.0;
   }
 
   /// Converts the model to a JSON string

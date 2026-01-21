@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+// Remove unused import: import 'dart:math';
+
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -42,7 +44,7 @@ class SheetSyncService extends GetxService {
   final lastImportTime = Rx<DateTime?>(null);
   final importProgress = Rx<Map<String, double>>({});
 
-  // Table-to-model mapping
+  // Enhanced Table-to-model mapping with all required models
   final Map<String, dynamic Function(Map<String, dynamic>)> _modelConstructors =
       {
         'customer': (map) => Customer.fromMap(map),
@@ -55,7 +57,7 @@ class SheetSyncService extends GetxService {
         'cans_entries': (map) => CansEntry.fromMap(map),
       };
 
-  // Ledger entry patterns (for dynamically named tables)
+  // Enhanced regex patterns for dynamic tables
   final RegExp _customerLedgerPattern = RegExp(r'customer_ledger_entries_');
   final RegExp _vendorLedgerPattern = RegExp(r'vendor_ledger_entries');
   final RegExp _itemLedgerPattern = RegExp(r'item_ledger_entries_');
@@ -136,7 +138,7 @@ class SheetSyncService extends GetxService {
     }
   }
 
-  // ==================== IMPORT FUNCTIONALITY ====================
+  // ==================== COMPREHENSIVE IMPORT FUNCTIONALITY ====================
 
   /// Import all data from Google Sheets into local database
   /// This will clear the local database completely before importing
@@ -157,7 +159,7 @@ class SheetSyncService extends GetxService {
         return {'success': false, 'error': 'No internet connection'};
       }
 
-      debugPrint('🔄 Starting import from Google Sheets...');
+      debugPrint('🔄 Starting comprehensive import from Google Sheets...');
 
       // Step 1: Get all tables from Google Sheets
       final tables = await _getSheetsTables();
@@ -176,7 +178,7 @@ class SheetSyncService extends GetxService {
       int failedCount = 0;
       List<String> failedTables = [];
 
-      // Step 3: Import each table
+      // Step 3: Import each table with proper model conversion
       for (int i = 0; i < tables.length; i++) {
         final tableName = tables[i];
         final progress = (i + 1) / tables.length;
@@ -184,7 +186,7 @@ class SheetSyncService extends GetxService {
 
         try {
           debugPrint('📥 Importing table: $tableName');
-          final success = await _importTable(tableName);
+          final success = await _importTableWithModel(tableName);
 
           if (success) {
             importedCount++;
@@ -234,6 +236,1422 @@ class SheetSyncService extends GetxService {
       isImporting.value = false;
     }
   }
+
+  /// Import single table with proper model conversion and database schema
+  Future<bool> _importTableWithModel(String tableName) async {
+    try {
+      debugPrint('📥 Requesting data for table: $tableName');
+
+      final response = await _makeAppsScriptRequest(
+        operation: 'get_table_data',
+        tableName: tableName,
+      );
+
+      debugPrint('📡 Table $tableName response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        try {
+          final data = jsonDecode(response.body);
+
+          if (data['success'] == true && data['data'] != null) {
+            final tableData = List<Map<String, dynamic>>.from(data['data']);
+
+            if (tableData.isEmpty) {
+              debugPrint('📭 Table $tableName is empty');
+              await _storeHash(tableName, 'empty');
+              return true;
+            }
+
+            debugPrint('📊 Table $tableName has ${tableData.length} rows');
+
+            // Step 1: Convert raw data to proper model data
+            final convertedData = await _convertToModelData(
+              tableName,
+              tableData,
+            );
+
+            // Step 2: Validate data integrity
+            final validationResult = await _validateTableData(
+              tableName,
+              convertedData,
+            );
+            if (!validationResult['valid']) {
+              debugPrint(
+                '❌ Validation failed for $tableName: ${validationResult['error']}',
+              );
+              return false;
+            }
+
+            // Step 3: Create/ensure database table exists with proper schema
+            await _ensureDatabaseTable(tableName, convertedData);
+
+            // Step 4: Insert data with proper foreign key relationships
+            final insertSuccess = await _insertModelData(
+              tableName,
+              convertedData,
+            );
+
+            if (insertSuccess) {
+              // Calculate and store hash
+              final hash = await _calculateDataHash(convertedData);
+              await _storeHash(tableName, hash);
+              debugPrint('✅ Imported ${tableData.length} rows to $tableName');
+              return true;
+            } else {
+              debugPrint('❌ Failed to insert data for $tableName');
+              return false;
+            }
+          } else {
+            debugPrint('❌ Server returned success: false for table $tableName');
+            debugPrint('❌ Server message: ${data['message']}');
+            return false;
+          }
+        } catch (e) {
+          debugPrint('❌ JSON decode error for table $tableName: $e');
+          return false;
+        }
+      } else {
+        debugPrint('❌ HTTP ${response.statusCode} for table: $tableName');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('❌ Error importing table $tableName: $e');
+      return false;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _convertToModelData(
+    String tableName,
+    List<Map<String, dynamic>> rawData,
+  ) async {
+    debugPrint('🎯 Converting data for table: $tableName');
+
+    try {
+      // First clean the data
+      final cleanedData = rawData.map(_cleanRowWithEnhancedConversion).toList();
+
+      // Then fix type issues
+      final fixedData = cleanedData
+          .map((row) => _fixTypeIssues(row, tableName))
+          .toList();
+
+      // Continue with existing logic...
+      if (_modelConstructors.containsKey(tableName)) {
+        return _convertUsingStandardModel(tableName, fixedData);
+      } else if (_customerLedgerPattern.hasMatch(tableName)) {
+        return _convertToCustomerLedgerEntries(tableName, fixedData);
+      } else if (_vendorLedgerPattern.hasMatch(tableName)) {
+        return _convertToVendorLedgerEntries(fixedData);
+      } else if (_itemLedgerPattern.hasMatch(tableName)) {
+        return _convertToItemLedgerEntries(tableName, fixedData);
+      } else if (_ledgerEntryPattern.hasMatch(tableName)) {
+        return _convertToLedgerEntries(tableName, fixedData);
+      } else {
+        return _cleanAndConvertGenericData(fixedData);
+      }
+    } catch (e) {
+      debugPrint('❌ Error converting data for $tableName: $e');
+      return _cleanAndConvertGenericData(rawData);
+    }
+  }
+
+  /// Convert using standard model constructor with enhanced type conversion
+  /// Convert using standard model constructor with enhanced type conversion
+  List<Map<String, dynamic>> _convertUsingStandardModel(
+    String tableName,
+    List<Map<String, dynamic>> rawData,
+  ) {
+    final constructor = _modelConstructors[tableName]!;
+    final convertedData = <Map<String, dynamic>>[];
+
+    for (var row in rawData) {
+      try {
+        // Enhanced cleaning with proper type conversion
+        final cleanedRow = _cleanRowWithEnhancedConversion(row);
+
+        // Special handling for specific models
+        if (tableName == 'customer') {
+          _handleCustomerSpecialFields(cleanedRow);
+        } else if (tableName == 'item') {
+          _handleItemSpecialFields(cleanedRow);
+        } else if (tableName == 'cans') {
+          _handleCansSpecialFields(cleanedRow);
+        } else if (tableName == 'expense_purchases') {
+          _handleExpensePurchaseSpecialFields(cleanedRow);
+        } else if (tableName == 'stock_transaction') {
+          // Ensure date is properly formatted for StockTransaction
+          if (cleanedRow['date'] is DateTime) {
+            cleanedRow['date'] = cleanedRow['date'].toIso8601String();
+          }
+        } else if (tableName == 'ledger') {
+          // Ensure dates are properly formatted for Ledger
+          if (cleanedRow['date'] is DateTime) {
+            cleanedRow['date'] = cleanedRow['date'].toIso8601String();
+          }
+          if (cleanedRow['createdAt'] is DateTime) {
+            cleanedRow['createdAt'] = cleanedRow['createdAt'].toIso8601String();
+          }
+          if (cleanedRow['updatedAt'] is DateTime) {
+            cleanedRow['updatedAt'] = cleanedRow['updatedAt'].toIso8601String();
+          }
+        }
+
+        // Convert using model constructor
+        final model = constructor(cleanedRow);
+        final modelMap = _modelToMap(model);
+
+        // Add to converted data
+        convertedData.add(modelMap);
+      } catch (e) {
+        debugPrint('❌ Error converting row for $tableName: $e');
+        debugPrint('❌ Problematic row: $row');
+        // Skip problematic row but continue with others
+      }
+    }
+
+    return convertedData;
+  }
+
+  /// Enhanced row cleaning with proper type conversion
+  Map<String, dynamic> _cleanRowWithEnhancedConversion(
+    Map<String, dynamic> row,
+  ) {
+    final cleanedRow = <String, dynamic>{};
+
+    for (final entry in row.entries) {
+      final key = entry.key;
+      final value = entry.value;
+
+      // Handle null/empty values
+      if (value == null || value.toString().isEmpty) {
+        cleanedRow[key] = null;
+        continue;
+      }
+
+      // Convert value based on key patterns and data type
+      cleanedRow[key] = _convertValueWithEnhancedLogic(key, value);
+    }
+
+    return cleanedRow;
+  }
+
+  /// Enhanced value conversion logic
+  dynamic _convertValueWithEnhancedLogic(String key, dynamic value) {
+    final String stringValue = value.toString();
+
+    // Handle empty strings
+    if (stringValue.isEmpty) return null;
+
+    // ============ ID FIELDS ============
+    if (key.endsWith('Id') ||
+        key == 'id' ||
+        key == 'transactionId' ||
+        key == 'accountId' ||
+        key == 'itemId' ||
+        key == 'vendorId' ||
+        key == 'employeeId' ||
+        key == 'customerId' ||
+        key == 'cansId') {
+      return _tryParseInt(stringValue);
+    }
+
+    // ============ DOUBLE/NUMERIC FIELDS ============
+    final numericPatterns = [
+      'balance',
+      'Balance',
+      'debit',
+      'Debit',
+      'credit',
+      'Credit',
+      'amount',
+      'Amount',
+      'price',
+      'Price',
+      'cost',
+      'Cost',
+      'quantity',
+      'Quantity',
+      'weight',
+      'Weight',
+      'stock',
+      'Stock',
+      'salary',
+      'Salary',
+      'dues',
+      'opening',
+      'Opening',
+      'PerKg',
+      'PerUnit',
+      'PerCan',
+      'PricePerKg',
+      'SellingPrice',
+      'CostPrice',
+      'AvailableStock',
+      'CanWeight',
+      'BasicSalary',
+      'Allowances',
+      'Deductions',
+      'NetSalary',
+      'TotalAmount',
+      'PaidAmount',
+      'ChequeAmount',
+    ];
+
+    for (var pattern in numericPatterns) {
+      if (key.contains(pattern)) {
+        return _tryParseDouble(stringValue);
+      }
+    }
+
+    // ============ BOOLEAN FIELDS ============
+    final booleanPatterns = [
+      'status',
+      'is',
+      'Is',
+      'active',
+      'Active',
+      'cleared',
+      'can',
+      'has',
+      'enabled',
+      'verified',
+      'approved',
+    ];
+
+    for (var pattern in booleanPatterns) {
+      if (key.contains(pattern)) {
+        return _parseBooleanEnhanced(stringValue);
+      }
+    }
+
+    // ============ DATE/TIME FIELDS ============
+    final datePatterns = [
+      'date',
+      'Date',
+      'time',
+      'Time',
+      'created',
+      'Created',
+      'updated',
+      'Updated',
+      'inserted',
+      'Inserted',
+    ];
+
+    for (var pattern in datePatterns) {
+      if (key.contains(pattern) || key.endsWith('At')) {
+        return _parseDateTimeEnhanced(stringValue);
+      }
+    }
+
+    // ============ JSON FIELDS ============
+    if (key == 'tags' || key == 'balanceCans' || key == 'receivedCans') {
+      return _parseJsonField(stringValue);
+    }
+
+    // ============ DEFAULT: STRING ============
+    return stringValue.trim();
+  }
+
+  /// Try parsing integer with error handling
+  int? _tryParseInt(String value) {
+    try {
+      return int.tryParse(value.replaceAll(',', ''));
+    } catch (e) {
+      debugPrint('⚠️ Failed to parse int: $value');
+      return null;
+    }
+  }
+
+  /// Try parsing double with error handling
+  double? _tryParseDouble(String value) {
+    try {
+      return double.tryParse(value.replaceAll(',', ''));
+    } catch (e) {
+      debugPrint('⚠️ Failed to parse double: $value');
+      return 0.0;
+    }
+  }
+
+  /// FIXED: Enhanced boolean parsing - returns bool, not String
+  dynamic _parseBooleanEnhanced(String value) {
+    final lowerValue = value.toLowerCase().trim();
+
+    if (lowerValue == 'true' ||
+        lowerValue == '1' ||
+        lowerValue == 'yes' ||
+        lowerValue == 'y' ||
+        lowerValue == 'on') {
+      return true;
+    }
+
+    if (lowerValue == 'false' ||
+        lowerValue == '0' ||
+        lowerValue == 'no' ||
+        lowerValue == 'n' ||
+        lowerValue == 'off') {
+      return false;
+    }
+
+    // Return as string if not clearly boolean
+    return value;
+  }
+
+  /// Enhanced date/time parsing
+  dynamic _parseDateTimeEnhanced(String value) {
+    try {
+      // NEW: Try parsing as millisecond timestamp first
+      final timestamp = int.tryParse(value);
+      if (timestamp != null) {
+        // If it's a large number, treat as milliseconds
+        if (timestamp > 1000000000000) {
+          return DateTime.fromMillisecondsSinceEpoch(timestamp);
+        }
+        // If it's a smaller number, treat as seconds
+        else if (timestamp > 1000000000) {
+          return DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+        }
+      }
+
+      // Try ISO8601 format first
+      if (value.contains('T') && value.contains(':')) {
+        final date = DateTime.tryParse(value);
+        if (date != null) return date;
+      }
+
+      // Try timestamp (milliseconds since epoch)
+      if (timestamp != null && timestamp > 1000000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(timestamp);
+      }
+
+      // Try common date formats
+      final formats = [
+        'yyyy-MM-dd HH:mm:ss',
+        'yyyy-MM-dd',
+        'dd-MM-yyyy HH:mm:ss',
+        'dd-MM-yyyy',
+        'MM/dd/yyyy HH:mm:ss',
+        'MM/dd/yyyy',
+        'dd/MM/yyyy HH:mm:ss',
+        'dd/MM/yyyy',
+      ];
+
+      for (final format in formats) {
+        try {
+          // Parse based on format
+          if (format.contains('HH:mm:ss')) {
+            // Handle with time
+            final parts = value.split(' ');
+            if (parts.length == 2) {
+              final datePart = parts[0];
+              final timePart = parts[1];
+
+              // Parse date part
+              DateTime? date;
+              if (datePart.contains('-')) {
+                final dateParts = datePart.split('-');
+                if (dateParts.length == 3) {
+                  if (format.startsWith('yyyy')) {
+                    // yyyy-MM-dd
+                    final year = int.tryParse(dateParts[0]);
+                    final month = int.tryParse(dateParts[1]);
+                    final day = int.tryParse(dateParts[2]);
+                    if (year != null && month != null && day != null) {
+                      date = DateTime(year, month, day);
+                    }
+                  } else {
+                    // dd-MM-yyyy
+                    final day = int.tryParse(dateParts[0]);
+                    final month = int.tryParse(dateParts[1]);
+                    final year = int.tryParse(dateParts[2]);
+                    if (year != null && month != null && day != null) {
+                      date = DateTime(year, month, day);
+                    }
+                  }
+                }
+              } else if (datePart.contains('/')) {
+                final dateParts = datePart.split('/');
+                if (dateParts.length == 3) {
+                  if (format.startsWith('MM')) {
+                    // MM/dd/yyyy
+                    final month = int.tryParse(dateParts[0]);
+                    final day = int.tryParse(dateParts[1]);
+                    final year = int.tryParse(dateParts[2]);
+                    if (year != null && month != null && day != null) {
+                      date = DateTime(year, month, day);
+                    }
+                  } else {
+                    // dd/MM/yyyy
+                    final day = int.tryParse(dateParts[0]);
+                    final month = int.tryParse(dateParts[1]);
+                    final year = int.tryParse(dateParts[2]);
+                    if (year != null && month != null && day != null) {
+                      date = DateTime(year, month, day);
+                    }
+                  }
+                }
+              }
+
+              // Parse time part if date was successfully parsed
+              if (date != null && timePart.contains(':')) {
+                final timeParts = timePart.split(':');
+                if (timeParts.length >= 2) {
+                  final hour = int.tryParse(timeParts[0]);
+                  final minute = int.tryParse(timeParts[1]);
+                  final second = timeParts.length > 2
+                      ? int.tryParse(timeParts[2])
+                      : 0;
+
+                  if (hour != null && minute != null) {
+                    return DateTime(
+                      date.year,
+                      date.month,
+                      date.day,
+                      hour,
+                      minute,
+                      second ?? 0,
+                    );
+                  }
+                }
+              }
+            }
+          } else {
+            // Date only formats
+            if (value.contains('-')) {
+              final parts = value.split('-');
+              if (parts.length == 3) {
+                if (format.startsWith('yyyy')) {
+                  // yyyy-MM-dd
+                  final year = int.tryParse(parts[0]);
+                  final month = int.tryParse(parts[1]);
+                  final day = int.tryParse(parts[2]);
+                  if (year != null && month != null && day != null) {
+                    return DateTime(year, month, day);
+                  }
+                } else {
+                  // dd-MM-yyyy
+                  final day = int.tryParse(parts[0]);
+                  final month = int.tryParse(parts[1]);
+                  final year = int.tryParse(parts[2]);
+                  if (year != null && month != null && day != null) {
+                    return DateTime(year, month, day);
+                  }
+                }
+              }
+            } else if (value.contains('/')) {
+              final parts = value.split('/');
+              if (parts.length == 3) {
+                if (format.startsWith('MM')) {
+                  // MM/dd/yyyy
+                  final month = int.tryParse(parts[0]);
+                  final day = int.tryParse(parts[1]);
+                  final year = int.tryParse(parts[2]);
+                  if (year != null && month != null && day != null) {
+                    return DateTime(year, month, day);
+                  }
+                } else {
+                  // dd/MM/yyyy
+                  final day = int.tryParse(parts[0]);
+                  final month = int.tryParse(parts[1]);
+                  final year = int.tryParse(parts[2]);
+                  if (year != null && month != null && day != null) {
+                    return DateTime(year, month, day);
+                  }
+                }
+              }
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error parsing date $value: $e');
+    }
+
+    // Return as string if parsing fails
+    return value;
+  }
+
+  /// Parse JSON fields
+  dynamic _parseJsonField(String value) {
+    try {
+      if (value.startsWith('[') || value.startsWith('{')) {
+        return jsonDecode(value);
+      }
+      // Handle comma-separated lists
+      if (value.contains(',')) {
+        return value.split(',').map((item) => item.trim()).toList();
+      }
+      return [value];
+    } catch (e) {
+      debugPrint('Error parsing JSON field $value: $e');
+      return null;
+    }
+  }
+
+  /// Handle customer special fields
+  void _handleCustomerSpecialFields(Map<String, dynamic> row) {
+    // Ensure openingBalance is properly set
+    if (row['openingBalance'] == null) {
+      row['openingBalance'] = 0.0;
+    }
+
+    // Ensure type has a default
+    if (row['type'] == null || row['type'].toString().isEmpty) {
+      row['type'] = 'Customer';
+    }
+  }
+
+  /// Handle item special fields
+  void _handleItemSpecialFields(Map<String, dynamic> row) {
+    // Set default values for numeric fields
+    final numericFields = [
+      'pricePerKg',
+      'costPrice',
+      'sellingPrice',
+      'availableStock',
+      'canWeight',
+    ];
+    for (var field in numericFields) {
+      if (row[field] == null) {
+        row[field] = 0.0;
+      }
+    }
+  }
+
+  /// Handle cans special fields
+  /// Handle cans special fields
+  /// Handle cans special fields
+  /// Handle cans special fields
+  void _handleCansSpecialFields(Map<String, dynamic> row) {
+    debugPrint('Handling Cans special fields, row keys: ${row.keys.toList()}');
+
+    // Handle accountId - might be string like "cust" or number
+    if (row['accountId'] is String) {
+      final accountIdStr = row['accountId'] as String;
+      if (accountIdStr.toLowerCase() == 'cust') {
+        row['accountId'] = 1; // Default customer ID
+      } else {
+        row['accountId'] = int.tryParse(accountIdStr) ?? 0;
+      }
+    } else if (row['accountId'] is double) {
+      row['accountId'] = (row['accountId'] as double).toInt();
+    }
+
+    // Handle receivedCans if it's a JSON array like "[0]"
+    if (row['receivedCans'] is String) {
+      final receivedCansStr = row['receivedCans'] as String;
+      if (receivedCansStr.startsWith('[') && receivedCansStr.endsWith(']')) {
+        try {
+          final jsonArray = jsonDecode(receivedCansStr) as List;
+          if (jsonArray.isNotEmpty) {
+            row['receivedCans'] = (jsonArray.first as num).toDouble();
+          } else {
+            row['receivedCans'] = 0.0;
+          }
+        } catch (e) {
+          debugPrint('Error parsing receivedCans JSON: $e');
+          row['receivedCans'] = 0.0;
+        }
+      } else {
+        // Try to parse as double
+        row['receivedCans'] = double.tryParse(receivedCansStr) ?? 0.0;
+      }
+    } else if (row['receivedCans'] is List) {
+      final listValue = row['receivedCans'] as List;
+      if (listValue.isNotEmpty) {
+        final firstValue = listValue.first;
+        if (firstValue is num) {
+          row['receivedCans'] = firstValue.toDouble();
+        } else {
+          row['receivedCans'] = 0.0;
+        }
+      } else {
+        row['receivedCans'] = 0.0;
+      }
+    }
+
+    // Set default values for numeric fields
+    final numericFields = ['openingBalanceCans', 'currentCans', 'totalCans'];
+    for (var field in numericFields) {
+      if (row[field] == null) {
+        row[field] = 0.0;
+      } else if (row[field] is String) {
+        row[field] = double.tryParse(row[field] as String) ?? 0.0;
+      }
+    }
+
+    // Set dates if not provided
+    final now = DateTime.now();
+    if (row['insertedDate'] == null) row['insertedDate'] = now;
+    if (row['updatedDate'] == null) row['updatedDate'] = now;
+  }
+
+  /// Handle expense purchase special fields
+  /// Handle expense purchase special fields
+  /// Handle expense purchase special fields
+  void _handleExpensePurchaseSpecialFields(Map<String, dynamic> row) {
+    // Set default values
+    if (row['category'] == null || row['category'].toString().isEmpty) {
+      row['category'] = 'General';
+    }
+
+    if (row['paymentMethod'] == null ||
+        row['paymentMethod'].toString().isEmpty) {
+      row['paymentMethod'] = 'Cash';
+    }
+
+    // CRITICAL FIX: Convert dates to milliseconds for ExpensePurchase
+    final now = DateTime.now();
+
+    // Handle 'date' field
+    if (row['date'] == null) {
+      row['date'] = now.millisecondsSinceEpoch;
+    } else if (row['date'] is DateTime) {
+      row['date'] = (row['date'] as DateTime).millisecondsSinceEpoch;
+    } else if (row['date'] is String) {
+      try {
+        final parsed = DateTime.parse(row['date']);
+        row['date'] = parsed.millisecondsSinceEpoch;
+      } catch (e) {
+        row['date'] = now.millisecondsSinceEpoch;
+      }
+    } else if (row['date'] is! int) {
+      row['date'] = now.millisecondsSinceEpoch;
+    }
+
+    // Handle 'createdAt' field
+    if (row['createdAt'] == null) {
+      row['createdAt'] = now.millisecondsSinceEpoch;
+    } else if (row['createdAt'] is DateTime) {
+      row['createdAt'] = (row['createdAt'] as DateTime).millisecondsSinceEpoch;
+    } else if (row['createdAt'] is String) {
+      try {
+        final parsed = DateTime.parse(row['createdAt']);
+        row['createdAt'] = parsed.millisecondsSinceEpoch;
+      } catch (e) {
+        row['createdAt'] = now.millisecondsSinceEpoch;
+      }
+    } else if (row['createdAt'] is! int) {
+      row['createdAt'] = now.millisecondsSinceEpoch;
+    }
+
+    // Handle 'updatedAt' field
+    if (row['updatedAt'] == null) {
+      row['updatedAt'] = now.millisecondsSinceEpoch;
+    } else if (row['updatedAt'] is DateTime) {
+      row['updatedAt'] = (row['updatedAt'] as DateTime).millisecondsSinceEpoch;
+    } else if (row['updatedAt'] is String) {
+      try {
+        final parsed = DateTime.parse(row['updatedAt']);
+        row['updatedAt'] = parsed.millisecondsSinceEpoch;
+      } catch (e) {
+        row['updatedAt'] = now.millisecondsSinceEpoch;
+      }
+    } else if (row['updatedAt'] is! int) {
+      row['updatedAt'] = now.millisecondsSinceEpoch;
+    }
+  }
+
+  // Fix the model conversion methods to handle DateTime properly:
+  List<Map<String, dynamic>> _convertToCustomerLedgerEntries(
+    String tableName,
+    List<Map<String, dynamic>> rawData,
+  ) {
+    // Extract customer number from table name
+    final parts = tableName.split('_');
+    final customerNo = parts.length > 3
+        ? parts.sublist(3).join('_')
+        : 'unknown';
+
+    return rawData.map((row) {
+      try {
+        final cleanedRow = _cleanRowWithEnhancedConversion(row);
+
+        // Add customerNo if not present
+        if (!cleanedRow.containsKey('customerNo')) {
+          cleanedRow['customerNo'] = customerNo;
+        }
+
+        // Ensure date is properly formatted
+        if (cleanedRow['date'] is DateTime) {
+          cleanedRow['date'] = cleanedRow['date'].toIso8601String();
+        }
+        if (cleanedRow['createdAt'] is DateTime) {
+          cleanedRow['createdAt'] = cleanedRow['createdAt'].toIso8601String();
+        }
+        if (cleanedRow['chequeDate'] is DateTime) {
+          cleanedRow['chequeDate'] = cleanedRow['chequeDate'].toIso8601String();
+        }
+
+        // Convert to CustomerLedgerEntry
+        final entry = CustomerLedgerEntry.fromMap(cleanedRow);
+        return entry.toMap();
+      } catch (e) {
+        debugPrint('❌ Error converting to CustomerLedgerEntry: $e');
+        debugPrint('❌ Row data: $row');
+        // Return cleaned row as fallback with proper date formatting
+        final fallbackRow = _cleanRowWithEnhancedConversion(row);
+        if (fallbackRow['date'] is DateTime) {
+          fallbackRow['date'] = fallbackRow['date'].toIso8601String();
+        }
+        return fallbackRow;
+      }
+    }).toList();
+  }
+
+  /// Convert to LedgerEntry with ledgerNo extraction
+  List<Map<String, dynamic>> _convertToLedgerEntries(
+    String tableName,
+    List<Map<String, dynamic>> rawData,
+  ) {
+    // Extract ledger number from table name
+    final parts = tableName.split('_');
+    final ledgerNo = parts.length > 2 ? parts.sublist(2).join('_') : 'unknown';
+
+    return rawData.map((row) {
+      try {
+        debugPrint('Processing ledger entry row: ${row.keys.toList()}');
+
+        final cleanedRow = _cleanRowWithEnhancedConversion(row);
+        debugPrint('Cleaned row keys: ${cleanedRow.keys.toList()}');
+
+        // Apply type fixes
+        final fixedRow = _fixTypeIssues(cleanedRow, tableName);
+
+        // Add ledgerNo if not present
+        if (!fixedRow.containsKey('ledgerNo')) {
+          fixedRow['ledgerNo'] = ledgerNo;
+        }
+
+        // Debug balanceCans and receivedCans
+        if (fixedRow.containsKey('balanceCans')) {
+          debugPrint(
+            'balanceCans type: ${fixedRow['balanceCans'].runtimeType}, value: ${fixedRow['balanceCans']}',
+          );
+        }
+        if (fixedRow.containsKey('receivedCans')) {
+          debugPrint(
+            'receivedCans type: ${fixedRow['receivedCans'].runtimeType}, value: ${fixedRow['receivedCans']}',
+          );
+        }
+
+        // Handle payment method and cheque fields
+        _handlePaymentMethodFields(fixedRow);
+
+        // Handle JSON fields
+        if (fixedRow.containsKey('tags') && fixedRow['tags'] is String) {
+          fixedRow['tags'] = _parseJsonField(fixedRow['tags']);
+        }
+
+        debugPrint('Attempting to create LedgerEntry from fixed row');
+        // Convert to LedgerEntry
+        final entry = LedgerEntry.fromMap(fixedRow);
+        debugPrint('Successfully created LedgerEntry');
+        return entry.toMap();
+      } catch (e, stackTrace) {
+        debugPrint('❌ Error converting to LedgerEntry: $e');
+        debugPrint('Stack trace: $stackTrace');
+        debugPrint('❌ Problematic row data: $row');
+
+        // Return cleaned row as fallback with proper field handling
+        final fallbackRow = _cleanRowWithEnhancedConversion(row);
+        final fixedFallbackRow = _fixTypeIssues(fallbackRow, tableName);
+
+        // Ensure string fields for LedgerEntry
+        if (fixedFallbackRow['balanceCans'] != null) {
+          fixedFallbackRow['balanceCans'] = fixedFallbackRow['balanceCans']
+              .toString();
+        }
+        if (fixedFallbackRow['receivedCans'] != null) {
+          fixedFallbackRow['receivedCans'] = fixedFallbackRow['receivedCans']
+              .toString();
+        }
+
+        // Ensure itemId is int?
+        if (fixedFallbackRow['itemId'] != null &&
+            fixedFallbackRow['itemId'] is double) {
+          fixedFallbackRow['itemId'] = (fixedFallbackRow['itemId'] as double)
+              .toInt();
+        }
+
+        // Ensure cansQuantity is int?
+        if (fixedFallbackRow['cansQuantity'] != null &&
+            fixedFallbackRow['cansQuantity'] is double) {
+          fixedFallbackRow['cansQuantity'] =
+              (fixedFallbackRow['cansQuantity'] as double).toInt();
+        }
+
+        debugPrint('Returning fallback row');
+        return fixedFallbackRow;
+      }
+    }).toList();
+  }
+
+  /// Handle payment method and cheque fields
+  void _handlePaymentMethodFields(Map<String, dynamic> row) {
+    final paymentMethod = (row['paymentMethod'] ?? 'cash')
+        .toString()
+        .toLowerCase();
+
+    if (paymentMethod != 'cheque') {
+      // Clear cheque fields if not cheque payment
+      row['chequeNo'] = null;
+      row['chequeAmount'] = null;
+      row['chequeDate'] = null;
+      row['bankName'] = null;
+    }
+  }
+
+  /// Fix type conversion issues for problematic fields
+  Map<String, dynamic> _fixTypeIssues(
+    Map<String, dynamic> row,
+    String tableName,
+  ) {
+    final fixedRow = Map<String, dynamic>.from(row);
+
+    // Fix for cans table - handle accountId
+    if (tableName == 'cans') {
+      // Fix accountId - might be string like "cust"
+      if (fixedRow['accountId'] is String) {
+        final accountIdStr = fixedRow['accountId'] as String;
+        if (accountIdStr.toLowerCase() == 'cust') {
+          fixedRow['accountId'] = 1;
+        } else {
+          fixedRow['accountId'] = int.tryParse(accountIdStr) ?? 0;
+        }
+      }
+
+      // Fix receivedCans if it's a JSON array like "[0]"
+      if (fixedRow['receivedCans'] is String) {
+        final receivedCansStr = fixedRow['receivedCans'] as String;
+        if (receivedCansStr.startsWith('[') && receivedCansStr.endsWith(']')) {
+          try {
+            final jsonArray = jsonDecode(receivedCansStr) as List;
+            if (jsonArray.isNotEmpty) {
+              fixedRow['receivedCans'] = (jsonArray.first as num).toDouble();
+            } else {
+              fixedRow['receivedCans'] = 0.0;
+            }
+          } catch (e) {
+            debugPrint('Error parsing receivedCans JSON: $e');
+            fixedRow['receivedCans'] = 0.0;
+          }
+        } else {
+          // Try to parse as double
+          fixedRow['receivedCans'] = double.tryParse(receivedCansStr) ?? 0.0;
+        }
+      }
+    }
+
+    // Fix for ledger entry tables
+    if (_ledgerEntryPattern.hasMatch(tableName)) {
+      // Handle balanceCans and receivedCans fields that might be JSON arrays
+      final specialFields = ['balanceCans', 'receivedCans'];
+      for (var field in specialFields) {
+        if (fixedRow[field] is String) {
+          final fieldValue = fixedRow[field] as String;
+          if (fieldValue.startsWith('[') && fieldValue.endsWith(']')) {
+            try {
+              final jsonArray = jsonDecode(fieldValue) as List;
+              if (jsonArray.isNotEmpty) {
+                fixedRow[field] = jsonArray.first.toString();
+              } else {
+                fixedRow[field] = '0';
+              }
+            } catch (e) {
+              debugPrint('Error parsing $field JSON: $e');
+              fixedRow[field] = '0';
+            }
+          }
+          // Already a string, keep it as is
+        } else if (fixedRow[field] is num) {
+          // Convert number to string
+          fixedRow[field] = fixedRow[field].toString();
+        } else if (fixedRow[field] is List) {
+          // Handle direct List type
+          final listValue = fixedRow[field] as List;
+          if (listValue.isNotEmpty) {
+            fixedRow[field] = listValue.first.toString();
+          } else {
+            fixedRow[field] = '0';
+          }
+        }
+      }
+
+      // Fix itemId, cansQuantity which should be int?
+      if (fixedRow['itemId'] != null) {
+        if (fixedRow['itemId'] is double) {
+          fixedRow['itemId'] = (fixedRow['itemId'] as double).toInt();
+        } else if (fixedRow['itemId'] is String) {
+          fixedRow['itemId'] = int.tryParse(fixedRow['itemId'] as String);
+        }
+      }
+
+      if (fixedRow['cansQuantity'] != null) {
+        if (fixedRow['cansQuantity'] is double) {
+          fixedRow['cansQuantity'] = (fixedRow['cansQuantity'] as double)
+              .toInt();
+        } else if (fixedRow['cansQuantity'] is String) {
+          fixedRow['cansQuantity'] =
+              int.tryParse(fixedRow['cansQuantity'] as String) ?? 0;
+        }
+      }
+    }
+
+    if (tableName == 'expense_purchases') {
+      // Fix date fields - ensure they're int (milliseconds)
+      final dateFields = ['date', 'createdAt', 'updatedAt'];
+      for (var field in dateFields) {
+        if (fixedRow[field] is DateTime) {
+          fixedRow[field] =
+              (fixedRow[field] as DateTime).millisecondsSinceEpoch;
+        }
+      }
+    }
+
+    return fixedRow;
+  }
+
+  // Fix the validation method to not require accountName for customer_ledger_entries:
+  Future<Map<String, dynamic>> _validateTableData(
+    String tableName,
+    List<Map<String, dynamic>> data,
+  ) async {
+    try {
+      if (_customerLedgerPattern.hasMatch(tableName) ||
+          _itemLedgerPattern.hasMatch(tableName)) {
+        debugPrint('⚠️ Skipping validation for ledger table: $tableName');
+        return {
+          'valid': true,
+          'message': 'Validation skipped for ledger table',
+        };
+      }
+      if (data.isEmpty) {
+        return {'valid': true, 'message': 'Empty data - valid'};
+      }
+
+      final firstRow = data.first;
+      final errors = <String>[];
+
+      // Check required fields based on table type
+      if (tableName == 'customer') {
+        final requiredFields = ['name', 'customerNo', 'mobileNo', 'type'];
+        for (var field in requiredFields) {
+          if (!firstRow.containsKey(field) || firstRow[field] == null) {
+            errors.add('Missing required field: $field');
+          }
+        }
+      } else if (tableName == 'item') {
+        final requiredFields = ['name', 'type', 'vendor'];
+        for (var field in requiredFields) {
+          if (!firstRow.containsKey(field) || firstRow[field] == null) {
+            errors.add('Missing required field: $field');
+          }
+        }
+      } else if (_ledgerEntryPattern.hasMatch(tableName)) {
+        final requiredFields = [
+          'voucherNo',
+          'accountName',
+          'date',
+          'transactionType',
+        ];
+        for (var field in requiredFields) {
+          if (!firstRow.containsKey(field) || firstRow[field] == null) {
+            errors.add('Missing required field: $field');
+          }
+        }
+      } else if (_customerLedgerPattern.hasMatch(tableName)) {
+        // FIXED: Customer ledger entries use 'customerName' not 'accountName'
+        final requiredFields = [
+          'voucherNo',
+          'customerName', // This is the key change
+          'date',
+          'transactionType',
+        ];
+        for (var field in requiredFields) {
+          if (!firstRow.containsKey(field) || firstRow[field] == null) {
+            errors.add('Missing required field: $field');
+          }
+        }
+      } else if (_itemLedgerPattern.hasMatch(tableName)) {
+        // Item ledger entries have different required fields
+        final requiredFields = [
+          'voucherNo',
+          'itemName',
+          'vendorName',
+          'transactionType',
+        ];
+        for (var field in requiredFields) {
+          if (!firstRow.containsKey(field) || firstRow[field] == null) {
+            errors.add('Missing required field: $field');
+          }
+        }
+      } else if (tableName == 'vendor_ledger_entries') {
+        final requiredFields = [
+          'voucherNo',
+          'vendorName',
+          'vendorId',
+          'date',
+          'transactionType',
+        ];
+        for (var field in requiredFields) {
+          if (!firstRow.containsKey(field) || firstRow[field] == null) {
+            errors.add('Missing required field: $field');
+          }
+        }
+      }
+
+      // Validate data types - be more lenient
+      for (var row in data.take(3)) {
+        // Check first 3 rows
+        for (var entry in row.entries) {
+          final key = entry.key;
+          final value = entry.value;
+
+          // Check numeric fields
+          if (key.contains('balance') ||
+              key.contains('debit') ||
+              key.contains('credit') ||
+              key.contains('amount') ||
+              key.contains('price') ||
+              key.contains('cost') ||
+              key.contains('quantity') ||
+              key.contains('weight') ||
+              key.contains('stock')) {
+            if (value != null && value is! num && value is! String) {
+              errors.add(
+                'Field $key should be numeric but got ${value.runtimeType}',
+              );
+            }
+          }
+
+          // Check date fields - accept both DateTime and String
+          if (key.contains('date') ||
+              key.contains('Date') ||
+              key.endsWith('At')) {
+            if (value != null &&
+                value is! DateTime &&
+                value is! String &&
+                value is! int) {
+              errors.add(
+                'Field $key should be DateTime, String, or int but got ${value.runtimeType}',
+              );
+            }
+          }
+        }
+      }
+
+      if (errors.isNotEmpty) {
+        debugPrint('❌ Validation errors for $tableName: $errors');
+        return {
+          'valid': false,
+          'error': 'Validation failed: ${errors.join(', ')}',
+          'errors': errors,
+        };
+      }
+
+      return {'valid': true, 'message': 'Validation passed'};
+    } catch (e) {
+      debugPrint('❌ Error validating table $tableName: $e');
+      return {'valid': false, 'error': 'Validation error: $e'};
+    }
+  }
+
+  /// Create dynamic ledger entry table
+  Future<void> _createDynamicLedgerEntryTable(String tableName) async {
+    // final Database db = await dbHelper.database; // FIXED: Use the db variable
+
+    // Extract ledgerNo from table name
+    final parts = tableName.split('_');
+    final ledgerNo = parts.length > 2 ? parts.sublist(2).join('_') : 'default';
+
+    // Use DBHelper's createLedgerEntryTable method
+    await dbHelper.createLedgerEntryTable(ledgerNo);
+
+    debugPrint(
+      '📄 Created dynamic ledger entry table: $tableName (ledgerNo: $ledgerNo)',
+    );
+  }
+
+  /// Create dynamic customer ledger entry table
+  Future<void> _createDynamicCustomerLedgerTable(String tableName) async {
+    final Database db = await dbHelper.database; // FIXED: Use the db variable
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS `$tableName` (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        voucherNo TEXT NOT NULL,
+        date TEXT NOT NULL,
+        customerName TEXT NOT NULL,
+        description TEXT NOT NULL,
+        debit REAL NOT NULL,
+        credit REAL NOT NULL,
+        balance REAL NOT NULL,
+        transactionType TEXT NOT NULL,
+        paymentMethod TEXT,
+        chequeNo TEXT,
+        chequeAmount REAL,
+        chequeDate TEXT,
+        bankName TEXT,
+        createdAt TEXT NOT NULL,
+        customerNo TEXT
+      )
+    ''');
+
+    debugPrint('📄 Created dynamic customer ledger table: $tableName');
+  }
+
+  /// Create dynamic item ledger entry table
+  Future<void> _createDynamicItemLedgerTable(String tableName) async {
+    // final Database db = await dbHelper.database; // FIXED: Use the db variable
+
+    // Extract ledgerNo from table name
+    final parts = tableName.split('_');
+    final ledgerNo = parts.length > 3 ? parts.sublist(3).join('_') : 'default';
+
+    // Use DBHelper's createItemLedgerEntryTable method
+    await dbHelper.createItemLedgerEntryTable(ledgerNo);
+
+    debugPrint(
+      '📄 Created dynamic item ledger table: $tableName (ledgerNo: $ledgerNo)',
+    );
+  }
+
+  /// Create generic table with columns from data
+  Future<void> _createGenericTable(
+    String tableName,
+    List<Map<String, dynamic>> data,
+  ) async {
+    if (data.isEmpty) return;
+
+    final Database db = await dbHelper.database; // FIXED: Use the db variable
+    final firstRow = data.first;
+
+    // Get column names and determine types
+    final columns = <String, String>{};
+
+    for (var key in firstRow.keys) {
+      final value = firstRow[key];
+
+      if (value == null) {
+        columns[key] = 'TEXT';
+      } else if (value is int) {
+        columns[key] = 'INTEGER';
+      } else if (value is double) {
+        columns[key] = 'REAL';
+      } else if (value is DateTime) {
+        columns[key] = 'TEXT';
+      } else if (value is bool) {
+        columns[key] = 'INTEGER';
+      } else {
+        columns[key] = 'TEXT';
+      }
+    }
+
+    // Build CREATE TABLE SQL
+    final columnDefs = columns.entries
+        .map((entry) => '`${entry.key}` ${entry.value}')
+        .join(', ');
+
+    final sql = 'CREATE TABLE IF NOT EXISTS `$tableName` ($columnDefs)';
+
+    await db.execute(sql);
+    debugPrint(
+      '📄 Created generic table: $tableName with ${columns.length} columns',
+    );
+  }
+
+  /// Insert model data into database with proper handling
+  Future<bool> _insertModelData(
+    String tableName,
+    List<Map<String, dynamic>> data,
+  ) async {
+    if (data.isEmpty) {
+      debugPrint('📭 No data to insert for $tableName');
+      return true;
+    }
+
+    final Database db = await dbHelper.database;
+
+    try {
+      // Use transaction for atomic operations
+      await db.transaction((txn) async {
+        // Prepare batch for performance
+        final batch = txn.batch();
+
+        for (var row in data) {
+          // Convert DateTime to proper format for database
+          final dbRow = _convertForDatabaseInsert(row);
+
+          // Insert row
+          batch.insert(
+            tableName,
+            dbRow,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+
+        await batch.commit(noResult: true);
+      });
+
+      debugPrint('💾 Inserted ${data.length} rows into $tableName');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error inserting data into $tableName: $e');
+      return false;
+    }
+  }
+
+  /// Convert row for database insertion (handle DateTime, JSON, etc.)
+  /// Convert row for database insertion (handle DateTime, JSON, etc.)
+  Map<String, dynamic> _convertForDatabaseInsert(Map<String, dynamic> row) {
+    final dbRow = <String, dynamic>{};
+
+    for (var entry in row.entries) {
+      final key = entry.key;
+      var value = entry.value;
+
+      // Convert DateTime to proper format for database
+      if (value is DateTime) {
+        // For cans table, always use ISO8601
+        if (row.containsKey('accountName') &&
+            (row.containsKey('openingBalanceCans') ||
+                row.containsKey('currentCans'))) {
+          // Likely cans table - use ISO8601
+          value = value.toIso8601String();
+        } else if (key == 'createdAt' || key == 'updatedAt') {
+          // Check if it's ExpensePurchase or ItemLedgerEntry (milliseconds)
+          if (row.containsKey('amount') && row.containsKey('madeBy')) {
+            // Likely ExpensePurchase - use milliseconds
+            value = value.millisecondsSinceEpoch;
+          } else if (row.containsKey('pricePerKg') &&
+              row.containsKey('canWeight')) {
+            // Likely ItemLedgerEntry - use milliseconds
+            value = value.millisecondsSinceEpoch;
+          } else {
+            // Default: ISO8601
+            value = value.toIso8601String();
+          }
+        } else if (key == 'chequeDate') {
+          // Cheque date should be ISO8601
+          value = value.toIso8601String();
+        } else if (key == 'insertedDate' || key == 'updatedDate') {
+          // Cans table dates - ISO8601
+          value = value.toIso8601String();
+        } else if (key == 'date') {
+          // Check context for date field
+          if (row.containsKey('voucherNo') &&
+              row.containsKey('transactionType')) {
+            // Likely ledger entry - ISO8601
+            value = value.toIso8601String();
+          } else if (row.containsKey('madeBy') && row.containsKey('category')) {
+            // ExpensePurchase - milliseconds
+            value = value.millisecondsSinceEpoch;
+          } else {
+            // Default: ISO8601
+            value = value.toIso8601String();
+          }
+        } else {
+          // Default: ISO8601
+          value = value.toIso8601String();
+        }
+      }
+      // Convert List to JSON string
+      else if (value is List) {
+        try {
+          value = jsonEncode(value);
+        } catch (e) {
+          debugPrint('Warning: Could not encode list for $key: $e');
+          value = null;
+        }
+      }
+      // Convert Map to JSON string
+      else if (value is Map) {
+        try {
+          value = jsonEncode(value);
+        } catch (e) {
+          debugPrint('Warning: Could not encode map for $key: $e');
+          value = null;
+        }
+      }
+      // Convert bool to int
+      else if (value is bool) {
+        value = value ? 1 : 0;
+      }
+
+      dbRow[key] = value;
+    }
+
+    return dbRow;
+  }
+
+  /// Convert to JSON serializable format
+  Map<String, dynamic> _convertToJsonSerializable(Map<String, dynamic> data) {
+    final result = <String, dynamic>{};
+
+    for (final entry in data.entries) {
+      final key = entry.key;
+      final value = entry.value;
+
+      if (value == null) {
+        result[key] = null;
+      } else if (value is DateTime) {
+        result[key] = value.toIso8601String();
+      } else if (value is List) {
+        result[key] = value.map((item) {
+          if (item is DateTime) {
+            return item.toIso8601String();
+          }
+          return item;
+        }).toList();
+      } else if (value is Map) {
+        result[key] = _convertToJsonSerializable(
+          Map<String, dynamic>.from(value),
+        );
+      } else {
+        result[key] = value;
+      }
+    }
+
+    return result;
+  }
+
+  /// Convert model to map
+  Map<String, dynamic> _modelToMap(dynamic model) {
+    if (model is Customer) return model.toMap();
+    if (model is Vendor) return model.toMap();
+    if (model is Item) return model.toMap();
+    if (model is Ledger) return model.toMap();
+    if (model is StockTransaction) return model.toMap();
+    if (model is ExpensePurchase) return model.toMap();
+    if (model is Cans) return model.toMap();
+    if (model is CansEntry) return model.toMap();
+    if (model is CustomerLedgerEntry) return model.toMap();
+    if (model is VendorLedgerEntry) return model.toMap();
+    if (model is ItemLedgerEntry) return model.toMap();
+    if (model is LedgerEntry) return model.toMap();
+
+    // Fallback
+    try {
+      if (model is Map<String, dynamic>) return model;
+      return model.toMap() as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('❌ Error converting model to map: $e');
+      return {};
+    }
+  }
+
+  /// Clean and convert generic data
+  List<Map<String, dynamic>> _cleanAndConvertGenericData(
+    List<Map<String, dynamic>> rawData,
+  ) {
+    return rawData.map(_cleanRowWithEnhancedConversion).toList();
+  }
+
+  // ==================== EXISTING METHODS FROM YOUR ORIGINAL CODE ====================
+  // These methods already exist in your original code and need to be kept
 
   /// Get list of all table names from Google Sheets
   Future<List<String>> _getSheetsTables() async {
@@ -403,6 +1821,7 @@ class SheetSyncService extends GetxService {
   }
 
   /// Clear local database completely
+  // Replace the _clearLocalDatabase method with this version:
   Future<void> _clearLocalDatabase() async {
     try {
       final Database db = await dbHelper.database;
@@ -423,10 +1842,232 @@ class SheetSyncService extends GetxService {
       // Also clear all stored hashes
       await _clearAllHashes();
 
-      debugPrint('✅ Database cleared successfully');
+      // IMPORTANT: Recreate all standard tables by reinitializing the database
+      await _recreateDatabase();
+
+      debugPrint('✅ Database cleared and recreated successfully');
     } catch (e) {
       debugPrint('Error clearing database: $e');
       rethrow;
+    }
+  }
+
+  /// Recreate the database by closing and reopening it
+  Future<void> _recreateDatabase() async {
+    try {
+      // Close the existing database connection
+      if (_database != null) {
+        await _database!.close();
+        _database = null;
+      }
+
+      // Reinitialize the database (this will trigger onCreate)
+      await dbHelper.database;
+
+      debugPrint('✅ Database recreated successfully');
+    } catch (e) {
+      debugPrint('❌ Error recreating database: $e');
+      rethrow;
+    }
+  }
+
+  // Update the _ensureDatabaseTable method to simplify table creation:
+  Future<void> _ensureDatabaseTable(
+    String tableName,
+    List<Map<String, dynamic>> data,
+  ) async {
+    final Database db = await dbHelper.database;
+
+    try {
+      // Check if table exists
+      final tableExists = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [tableName],
+      );
+
+      if (tableExists.isNotEmpty) {
+        debugPrint('✅ Table $tableName already exists');
+        return;
+      }
+
+      // Create table based on table type
+      if (_modelConstructors.containsKey(tableName)) {
+        // For standard tables, we'll create them directly
+        debugPrint('📋 Creating standard table: $tableName');
+
+        if (tableName == 'customer') {
+          await db.execute('''
+          CREATE TABLE customer(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            address TEXT NOT NULL,
+            customerNo TEXT NOT NULL,
+            mobileNo TEXT NOT NULL,
+            type TEXT NOT NULL,
+            ntnNo TEXT,
+            openingBalance REAL DEFAULT 0.0
+          )
+        ''');
+        } else if (tableName == 'item') {
+          await db.execute('''
+          CREATE TABLE item(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            vendor TEXT NOT NULL,
+            pricePerKg REAL DEFAULT 0.0,
+            costPrice REAL DEFAULT 0.0,
+            sellingPrice REAL DEFAULT 0.0,
+            availableStock REAL DEFAULT 0.0,
+            canWeight REAL DEFAULT 0.0
+          )
+        ''');
+        } else if (tableName == 'ledger') {
+          await db.execute('''
+          CREATE TABLE ledger(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ledgerNo TEXT NOT NULL,
+            accountId INTEGER,
+            accountName TEXT NOT NULL,
+            transactionType TEXT NOT NULL,
+            debit REAL NOT NULL,
+            credit REAL NOT NULL,
+            date TEXT NOT NULL,
+            description TEXT,
+            referenceNumber TEXT,
+            transactionId INTEGER,
+            createdAt TEXT NOT NULL,
+            updatedAt TEXT NOT NULL,
+            createdBy TEXT,
+            category TEXT,
+            tags TEXT,
+            voucherNo TEXT NOT NULL,
+            balance REAL NOT NULL,
+            status TEXT NOT NULL
+          )
+        ''');
+        } else if (tableName == 'stock_transaction') {
+          await db.execute('''
+          CREATE TABLE stock_transaction(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            itemId INTEGER NOT NULL,
+            quantity REAL NOT NULL,
+            date TEXT NOT NULL,
+            type TEXT NOT NULL
+          )
+        ''');
+        } else if (tableName == 'expense_purchases') {
+          await db.execute('''
+          CREATE TABLE expense_purchases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            amount REAL NOT NULL,
+            madeBy TEXT NOT NULL,
+            category TEXT NOT NULL,
+            paymentMethod TEXT NOT NULL,
+            referenceNumber TEXT,
+            notes TEXT,
+            createdAt INTEGER NOT NULL,
+            updatedAt INTEGER NOT NULL
+          )
+        ''');
+        } else if (tableName == 'cans') {
+          await db.execute('''
+          CREATE TABLE cans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            accountName TEXT NOT NULL,
+            accountId INTEGER,
+            openingBalanceCans REAL DEFAULT 0,
+            currentCans REAL DEFAULT 0,
+            totalCans REAL DEFAULT 0,
+            receivedCans REAL DEFAULT 0,
+            insertedDate TEXT NOT NULL,
+            updatedDate TEXT NOT NULL
+          )
+        ''');
+          // Add unique constraint separately
+          await db.execute('''
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_cans_account
+          ON cans(accountId, accountName)
+        ''');
+        } else if (tableName == 'cans_entries') {
+          await db.execute('''
+          CREATE TABLE cans_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cansId INTEGER NOT NULL,
+            voucherNo TEXT NOT NULL,
+            accountId INTEGER,
+            accountName TEXT NOT NULL,
+            date TEXT NOT NULL,
+            transactionType TEXT NOT NULL,
+            currentCans REAL DEFAULT 0,
+            receivedCans REAL DEFAULT 0,
+            balance REAL DEFAULT 0,
+            description TEXT,
+            createdAt TEXT NOT NULL,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+        } else if (tableName == 'vendor_ledger_entries') {
+          await db.execute('''
+          CREATE TABLE vendor_ledger_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            voucherNo TEXT NOT NULL,
+            vendorName TEXT NOT NULL,
+            vendorId INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            description TEXT,
+            debit REAL DEFAULT 0.0,
+            credit REAL DEFAULT 0.0,
+            balance REAL DEFAULT 0.0,
+            transactionType TEXT NOT NULL,
+            paymentMethod TEXT,
+            chequeNo TEXT,
+            chequeAmount REAL,
+            chequeDate TEXT,
+            bankName TEXT,
+            createdAt TEXT NOT NULL,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+        }
+        debugPrint('✅ Created standard table: $tableName');
+      } else if (_customerLedgerPattern.hasMatch(tableName)) {
+        // Create dynamic customer ledger entry table
+        await _createDynamicCustomerLedgerTable(tableName);
+      } else if (_itemLedgerPattern.hasMatch(tableName)) {
+        // Create dynamic item ledger entry table
+        await _createDynamicItemLedgerTable(tableName);
+      } else if (_ledgerEntryPattern.hasMatch(tableName)) {
+        // Create dynamic ledger entry table
+        await _createDynamicLedgerEntryTable(tableName);
+      } else {
+        // Create generic table with columns from data
+        await _createGenericTable(tableName, data);
+      }
+
+      debugPrint('✅ Created/ensured table: $tableName');
+    } catch (e) {
+      debugPrint('❌ Error ensuring table $tableName: $e');
+      rethrow;
+    }
+  }
+
+  // Also, we need to add the Database variable to the SheetSyncService class:
+  Database? _database;
+
+  // Update the existing getAllTableNames method to use the correct approach:
+  Future<List<String>> getAllTableNames() async {
+    try {
+      Database db = await dbHelper.database;
+      List<Map<String, dynamic>> result = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+      );
+      return result.map((row) => row['name'] as String).toList();
+    } catch (e) {
+      debugPrint('Error getting table names: $e');
+      return [];
     }
   }
 
@@ -443,469 +2084,35 @@ class SheetSyncService extends GetxService {
     debugPrint('🧹 Cleared all stored hashes');
   }
 
-  /// Create table with dynamic columns
-  Future<void> _createTable(String tableName, List<String> columns) async {
-    try {
-      final Database db = await dbHelper.database;
-
-      // Build CREATE TABLE SQL
-      final columnDefs = columns
-          .map((column) {
-            // Handle SQLite reserved words and special characters
-            final safeColumn = '"$column"';
-            return '$safeColumn TEXT';
-          })
-          .join(', ');
-
-      final sql = 'CREATE TABLE "$tableName" ($columnDefs)';
-
-      await db.execute(sql);
-      debugPrint(
-        '📄 Created table: $tableName with columns: ${columns.join(', ')}',
-      );
-    } catch (e) {
-      debugPrint('Error creating table $tableName: $e');
-      rethrow;
-    }
+  /// Store hash for table
+  Future<void> _storeHash(String tableName, String hash) async {
+    await initPrefs();
+    await prefs.setString('hash_$tableName', hash);
+    debugPrint('💾 Stored hash for $tableName: $hash');
   }
 
-  /// Import a single table from Google Sheets using data models
-  Future<bool> _importTable(String tableName) async {
+  /// Check internet connection
+  Future<bool> _checkInternetConnection() async {
     try {
-      debugPrint('📥 Requesting data for table: $tableName');
-
-      final response = await _makeAppsScriptRequest(
-        operation: 'get_table_data',
-        tableName: tableName,
-      );
-
-      debugPrint('📡 Table $tableName response status: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        try {
-          final data = jsonDecode(response.body);
-
-          if (data['success'] == true && data['data'] != null) {
-            final tableData = List<Map<String, dynamic>>.from(data['data']);
-
-            if (tableData.isEmpty) {
-              debugPrint('📭 Table $tableName is empty');
-              await _storeHash(tableName, 'empty');
-              return true;
-            }
-
-            // Get column names from first row
-            final firstRow = tableData.first;
-            final columns = firstRow.keys.toList();
-
-            debugPrint(
-              '📊 Table $tableName has ${columns.length} columns: ${columns.join(', ')}',
-            );
-            debugPrint('📊 Table $tableName has ${tableData.length} rows');
-
-            // Clean and prepare data with proper types using data models
-            final cleanedData = await _convertToModelData(tableName, tableData);
-
-            // Create table with dynamic schema
-            await _createTable(tableName, columns);
-
-            // Insert data
-            await _insertTableData(tableName, cleanedData, columns);
-
-            // Calculate and store hash
-            final hash = await _calculateDataHash(cleanedData);
-            await _storeHash(tableName, hash);
-
-            debugPrint('✅ Imported ${tableData.length} rows to $tableName');
-            return true;
-          } else {
-            debugPrint('❌ Server returned success: false for table $tableName');
-            debugPrint('❌ Server message: ${data['message']}');
-            return false;
-          }
-        } catch (e) {
-          debugPrint('❌ JSON decode error for table $tableName: $e');
-          // Log the problematic response
-          if (response.body.length > 200) {
-            debugPrint(
-              '❌ Response snippet: ${response.body.substring(0, 200)}...',
-            );
-          } else {
-            debugPrint('❌ Response: ${response.body}');
-          }
-          return false;
-        }
-      } else {
-        debugPrint('❌ HTTP ${response.statusCode} for table: $tableName');
-        debugPrint('❌ Response: ${response.body}');
-        return false;
-      }
+      final response = await http
+          .get(Uri.parse('https://www.google.com'))
+          .timeout(const Duration(seconds: 5));
+      return response.statusCode == 200;
     } catch (e) {
-      debugPrint('❌ Error importing table $tableName: $e');
+      debugPrint('🌐 No internet connection: $e');
       return false;
     }
   }
 
-  /// Convert raw data to proper model data
-  Future<List<Map<String, dynamic>>> _convertToModelData(
-    String tableName,
-    List<Map<String, dynamic>> rawData,
-  ) async {
-    try {
-      // Check if we have a model constructor for this table
-      if (_modelConstructors.containsKey(tableName)) {
-        debugPrint('🎯 Using model constructor for $tableName');
-        return _convertUsingModel(tableName, rawData);
-      }
+  /// Calculate data hash
+  Future<String> _calculateDataHash(List<Map<String, dynamic>> data) async {
+    if (data.isEmpty) return 'empty';
 
-      // Check for pattern matches (ledger entries)
-      if (_customerLedgerPattern.hasMatch(tableName)) {
-        debugPrint('🎯 Using CustomerLedgerEntry model for $tableName');
-        return _convertToCustomerLedgerEntries(rawData);
-      } else if (_vendorLedgerPattern.hasMatch(tableName)) {
-        debugPrint('🎯 Using VendorLedgerEntry model for $tableName');
-        return _convertToVendorLedgerEntries(rawData);
-      } else if (_itemLedgerPattern.hasMatch(tableName)) {
-        debugPrint('🎯 Using ItemLedgerEntry model for $tableName');
-        return _convertToItemLedgerEntries(rawData);
-      } else if (_ledgerEntryPattern.hasMatch(tableName)) {
-        debugPrint('🎯 Using LedgerEntry model for $tableName');
-        return _convertToLedgerEntries(rawData);
-      }
-
-      // Default: clean data without model conversion
-      debugPrint(
-        '⚠️ No specific model found for $tableName, using generic conversion',
-      );
-      return _cleanGenericData(rawData);
-    } catch (e) {
-      debugPrint('❌ Error converting data for $tableName: $e');
-      // Fall back to generic conversion
-      return _cleanGenericData(rawData);
-    }
-  }
-
-  /// Convert using specific model constructor
-  List<Map<String, dynamic>> _convertUsingModel(
-    String tableName,
-    List<Map<String, dynamic>> rawData,
-  ) {
-    final constructor = _modelConstructors[tableName]!;
-    return rawData.map((row) {
-      try {
-        // Clean row first
-        final cleanedRow = _cleanRow(row);
-        // Convert using model
-        final model = constructor(cleanedRow);
-        // Convert model back to map
-        return _modelToMap(model);
-      } catch (e) {
-        debugPrint('❌ Error converting row for $tableName: $e');
-        debugPrint('❌ Problematic row: $row');
-        // Return cleaned row as fallback
-        return _cleanRow(row);
-      }
-    }).toList();
-  }
-
-  /// Convert to CustomerLedgerEntry objects
-  List<Map<String, dynamic>> _convertToCustomerLedgerEntries(
-    List<Map<String, dynamic>> rawData,
-  ) {
-    return rawData.map((row) {
-      try {
-        final cleanedRow = _cleanRow(row);
-        final entry = CustomerLedgerEntry.fromMap(cleanedRow);
-        return entry.toMap();
-      } catch (e) {
-        debugPrint('❌ Error converting to CustomerLedgerEntry: $e');
-        return _cleanRow(row);
-      }
-    }).toList();
-  }
-
-  /// Convert to VendorLedgerEntry objects
-  List<Map<String, dynamic>> _convertToVendorLedgerEntries(
-    List<Map<String, dynamic>> rawData,
-  ) {
-    return rawData.map((row) {
-      try {
-        final cleanedRow = _cleanRow(row);
-        final entry = VendorLedgerEntry.fromMap(cleanedRow);
-        return entry.toMap();
-      } catch (e) {
-        debugPrint('❌ Error converting to VendorLedgerEntry: $e');
-        return _cleanRow(row);
-      }
-    }).toList();
-  }
-
-  /// Convert to ItemLedgerEntry objects
-  List<Map<String, dynamic>> _convertToItemLedgerEntries(
-    List<Map<String, dynamic>> rawData,
-  ) {
-    return rawData.map((row) {
-      try {
-        final cleanedRow = _cleanRow(row);
-        final entry = ItemLedgerEntry.fromMap(cleanedRow);
-        return entry.toMap();
-      } catch (e) {
-        debugPrint('❌ Error converting to ItemLedgerEntry: $e');
-        return _cleanRow(row);
-      }
-    }).toList();
-  }
-
-  /// Convert to LedgerEntry objects
-  List<Map<String, dynamic>> _convertToLedgerEntries(
-    List<Map<String, dynamic>> rawData,
-  ) {
-    return rawData.map((row) {
-      try {
-        final cleanedRow = _cleanRow(row);
-        final entry = LedgerEntry.fromMap(cleanedRow);
-        return entry.toMap();
-      } catch (e) {
-        debugPrint('❌ Error converting to LedgerEntry: $e');
-        return _cleanRow(row);
-      }
-    }).toList();
-  }
-
-  /// Clean generic data without model conversion
-  List<Map<String, dynamic>> _cleanGenericData(
-    List<Map<String, dynamic>> rawData,
-  ) {
-    return rawData.map(_cleanRow).toList();
-  }
-
-  /// Clean a single row with type conversion
-  Map<String, dynamic> _cleanRow(Map<String, dynamic> row) {
-    final cleanedRow = <String, dynamic>{};
-
-    for (final entry in row.entries) {
-      final key = entry.key;
-      final value = entry.value;
-
-      // Handle null values
-      if (value == null) {
-        cleanedRow[key] = null;
-        continue;
-      }
-
-      // Convert value based on key patterns
-      cleanedRow[key] = _convertValue(key, value);
-    }
-
-    return cleanedRow;
-  }
-
-  /// Convert value based on key name patterns
-  dynamic _convertValue(String key, dynamic value) {
-    final String stringValue = value.toString();
-
-    if (stringValue.isEmpty) return null;
-
-    // ID fields
-    if (key.endsWith('Id') || key == 'id') {
-      return int.tryParse(stringValue);
-    }
-
-    // Numeric fields
-    if (key.contains('balance') ||
-        key.contains('Balance') ||
-        key.contains('debit') ||
-        key.contains('Debit') ||
-        key.contains('credit') ||
-        key.contains('Credit') ||
-        key.contains('amount') ||
-        key.contains('Amount') ||
-        key.contains('price') ||
-        key.contains('Price') ||
-        key.contains('cost') ||
-        key.contains('Cost') ||
-        key.contains('quantity') ||
-        key.contains('Quantity') ||
-        key.contains('weight') ||
-        key.contains('Weight') ||
-        key.contains('stock') ||
-        key.contains('Stock') ||
-        key.contains('salary') ||
-        key.contains('Salary') ||
-        key.contains('dues') ||
-        key.contains('opening') ||
-        key.endsWith('PerKg') ||
-        key.endsWith('PerUnit') ||
-        key.endsWith('PerCan')) {
-      return double.tryParse(stringValue);
-    }
-
-    // Boolean fields
-    if (key == 'status' ||
-        key.contains('is') ||
-        key.contains('Is') ||
-        key.contains('active') ||
-        key.contains('Active') ||
-        key.contains('cleared')) {
-      final lowerValue = stringValue.toLowerCase();
-      if (lowerValue == 'true' || lowerValue == '1') return true;
-      if (lowerValue == 'false' || lowerValue == '0') return false;
-      return stringValue;
-    }
-
-    // Date/Time fields
-    if (key.contains('date') ||
-        key.contains('Date') ||
-        key.contains('time') ||
-        key.contains('Time') ||
-        key.contains('created') ||
-        key.contains('Created') ||
-        key.contains('updated') ||
-        key.contains('Updated') ||
-        key.contains('inserted') ||
-        key.contains('Inserted') ||
-        (key.endsWith('At') || key.contains('At'))) {
-      return _parseDateTime(stringValue);
-    }
-
-    // Default: return as string
-    return stringValue;
-  }
-
-  /// Parse date time string
-  DateTime? _parseDateTime(String value) {
-    try {
-      // Try ISO format
-      if (value.contains('T') && value.contains(':')) {
-        return DateTime.tryParse(value);
-      }
-
-      // Try timestamp
-      final timestamp = int.tryParse(value);
-      if (timestamp != null && timestamp > 1000000000000) {
-        return DateTime.fromMillisecondsSinceEpoch(timestamp);
-      }
-
-      // Try common date formats
-      final formats = [
-        'yyyy-MM-dd',
-        'dd-MM-yyyy',
-        'MM/dd/yyyy',
-        'yyyy/MM/dd',
-        'dd/MM/yyyy',
-      ];
-
-      for (final format in formats) {
-        try {
-          // Simple parsing for known formats
-          if (format == 'yyyy-MM-dd' && value.contains('-')) {
-            final parts = value.split('-');
-            if (parts.length == 3) {
-              final year = int.tryParse(parts[0]);
-              final month = int.tryParse(parts[1]);
-              final day = int.tryParse(parts[2]);
-              if (year != null && month != null && day != null) {
-                return DateTime(year, month, day);
-              }
-            }
-          }
-        } catch (_) {
-          continue;
-        }
-      }
-    } catch (e) {
-      debugPrint('Error parsing date $value: $e');
-    }
-
-    return null;
-  }
-
-  /// Convert model to map
-  Map<String, dynamic> _modelToMap(dynamic model) {
-    if (model is Customer) return model.toMap();
-    if (model is Vendor) return model.toMap();
-    if (model is Item) return model.toMap();
-    if (model is Ledger) return model.toMap();
-    if (model is StockTransaction) return model.toMap();
-    if (model is ExpensePurchase) return model.toMap();
-    if (model is Cans) return model.toMap();
-    if (model is CansEntry) return model.toMap();
-    if (model is CustomerLedgerEntry) return model.toMap();
-    if (model is VendorLedgerEntry) return model.toMap();
-    if (model is ItemLedgerEntry) return model.toMap();
-    if (model is LedgerEntry) return model.toMap();
-
-    // Fallback: try to call toMap() if it exists
-    try {
-      if (model is Map<String, dynamic>) return model;
-      return model.toMap() as Map<String, dynamic>;
-    } catch (e) {
-      debugPrint('❌ Error converting model to map: $e');
-      return {};
-    }
-  }
-
-  // In SheetSyncService class, add this method:
-  Map<String, dynamic> _convertToJsonSerializable(Map<String, dynamic> data) {
-    final result = <String, dynamic>{};
-
-    for (final entry in data.entries) {
-      final key = entry.key;
-      final value = entry.value;
-
-      if (value == null) {
-        result[key] = null;
-      } else if (value is DateTime) {
-        result[key] = value.toIso8601String();
-      } else if (value is List) {
-        result[key] = value.map((item) {
-          if (item is DateTime) {
-            return item.toIso8601String();
-          }
-          return item;
-        }).toList();
-      } else if (value is Map) {
-        result[key] = _convertToJsonSerializable(
-          Map<String, dynamic>.from(value),
-        );
-      } else {
-        result[key] = value;
-      }
-    }
-
-    return result;
-  }
-
-  /// Insert data into table
-  Future<void> _insertTableData(
-    String tableName,
-    List<Map<String, dynamic>> data,
-    List<String> columns,
-  ) async {
-    try {
-      final Database db = await dbHelper.database;
-
-      // Prepare batch for better performance
-      final batch = db.batch();
-
-      for (final row in data) {
-        final values = <String, dynamic>{};
-
-        // Map row values to column names
-        for (final column in columns) {
-          final value = row[column];
-          values[column] = value?.toString() ?? '';
-        }
-
-        batch.insert(tableName, values);
-      }
-
-      await batch.commit(noResult: true);
-      debugPrint('💾 Inserted ${data.length} rows into $tableName');
-    } catch (e) {
-      debugPrint('Error inserting data into $tableName: $e');
-      rethrow;
-    }
+    final serializableData = data.map(_convertToJsonSerializable).toList();
+    var dataString = jsonEncode(serializableData);
+    var bytes = utf8.encode(dataString);
+    var digest = md5.convert(bytes);
+    return digest.toString();
   }
 
   /// Import with dialog for user interaction
@@ -1048,20 +2255,6 @@ class SheetSyncService extends GetxService {
     }
   }
 
-  // ==================== INTERNET CHECK ====================
-
-  Future<bool> _checkInternetConnection() async {
-    try {
-      final response = await http
-          .get(Uri.parse('https://www.google.com'))
-          .timeout(const Duration(seconds: 5));
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint('🌐 No internet connection: $e');
-      return false;
-    }
-  }
-
   // ==================== AUTOMATIC SYNC SCHEDULING ====================
 
   Future<void> startAutoSync() async {
@@ -1102,6 +2295,11 @@ class SheetSyncService extends GetxService {
     }
 
     _schedulePeriodicCheck();
+  }
+
+  void stopAutoSync() {
+    syncTimer?.cancel();
+    syncTimer = null;
   }
 
   Future<void> _performAutoSync() async {
@@ -1172,6 +2370,20 @@ class SheetSyncService extends GetxService {
     debugPrint('⏰ Next retry scheduled at: $nextRetryTime');
   }
 
+  void _schedulePeriodicCheck() {
+    Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (!syncSettings.value['enabled']) {
+        timer.cancel();
+        return;
+      }
+
+      final now = DateTime.now();
+      if (nextSyncTime.value != null && now.isAfter(nextSyncTime.value!)) {
+        _performAutoSync();
+      }
+    });
+  }
+
   Future<void> _pauseAutoSync() async {
     final currentSettings = syncSettings.value;
     final newSettings = {
@@ -1189,25 +2401,6 @@ class SheetSyncService extends GetxService {
       colorText: Colors.white,
       duration: const Duration(seconds: 5),
     );
-  }
-
-  void _schedulePeriodicCheck() {
-    Timer.periodic(const Duration(minutes: 1), (timer) {
-      if (!syncSettings.value['enabled']) {
-        timer.cancel();
-        return;
-      }
-
-      final now = DateTime.now();
-      if (nextSyncTime.value != null && now.isAfter(nextSyncTime.value!)) {
-        _performAutoSync();
-      }
-    });
-  }
-
-  void stopAutoSync() {
-    syncTimer?.cancel();
-    syncTimer = null;
   }
 
   Future<void> updateSyncSettings(Map<String, dynamic> newSettings) async {
@@ -1534,125 +2727,9 @@ class SheetSyncService extends GetxService {
 
   // ==================== HELPER METHODS ====================
 
-  Future<String> _calculateDataHash(List<Map<String, dynamic>> data) async {
-    if (data.isEmpty) return 'empty';
-
-    // Convert all DateTime objects to strings before encoding
-    final serializableData = data.map(_convertToJsonSerializable).toList();
-
-    var dataString = jsonEncode(serializableData);
-    var bytes = utf8.encode(dataString);
-    var digest = md5.convert(bytes);
-    return digest.toString();
-  }
-
-  // In SheetSyncService class
-  Future<void> fixExistingDatabaseTypes() async {
-    debugPrint('🛠️ Fixing existing database type issues...');
-
-    try {
-      final db = await dbHelper.database;
-
-      // Fix customer table
-      await _fixTableTypes(db, 'customer', [
-        'id INTEGER',
-        'openingBalance REAL',
-      ]);
-
-      // Fix ledger table
-      await _fixTableTypes(db, 'ledger', [
-        'id INTEGER',
-        'accountId INTEGER',
-        'debit REAL',
-        'credit REAL',
-        'balance REAL',
-      ]);
-
-      // Fix item table
-      await _fixTableTypes(db, 'item', [
-        'id INTEGER',
-        'pricePerKg REAL',
-        'costPrice REAL',
-        'sellingPrice REAL',
-        'availableStock REAL',
-        'canWeight REAL',
-      ]);
-
-      debugPrint('✅ Database types fixed successfully');
-    } catch (e) {
-      debugPrint('❌ Error fixing database types: $e');
-    }
-  }
-
-  Future<void> _fixTableTypes(
-    Database db,
-    String tableName,
-    List<String> columnTypes,
-  ) async {
-    try {
-      // Check if table exists
-      final tables = await db.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        [tableName],
-      );
-
-      if (tables.isEmpty) {
-        debugPrint('📭 Table $tableName does not exist, skipping');
-        return;
-      }
-
-      // Get current table info
-      final info = await db.query(tableName, limit: 1);
-      if (info.isEmpty) {
-        debugPrint('📭 Table $tableName is empty, skipping');
-        return;
-      }
-
-      debugPrint('🛠️ Fixing types for table: $tableName');
-
-      // Create temporary table with correct types
-      final tempTable = '${tableName}_temp';
-      final columns = info.first.keys.join(', ');
-      final columnDefs = columnTypes.join(', ');
-
-      await db.execute('CREATE TABLE $tempTable ($columnDefs)');
-
-      // Copy data with type conversion
-      await db.execute('INSERT INTO $tempTable SELECT * FROM $tableName');
-
-      // Drop original table
-      await db.execute('DROP TABLE $tableName');
-
-      // Rename temporary table
-      await db.execute('ALTER TABLE $tempTable RENAME TO $tableName');
-
-      debugPrint('✅ Fixed types for table: $tableName');
-    } catch (e) {
-      debugPrint('❌ Error fixing table $tableName: $e');
-    }
-  }
-
   Future<String> _getStoredHash(String tableName) async {
     await initPrefs();
     return prefs.getString('hash_$tableName') ?? 'first_time';
-  }
-
-  Future<void> _storeHash(String tableName, String hash) async {
-    await initPrefs();
-    await prefs.setString('hash_$tableName', hash);
-  }
-
-  Future<List<String>> getAllTableNames() async {
-    try {
-      Database db = await dbHelper.database;
-      List<Map<String, dynamic>> result = await db.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-      );
-      return result.map((row) => row['name'] as String).toList();
-    } catch (e) {
-      debugPrint('Error getting table names: $e');
-      return [];
-    }
   }
 
   Future<List<Map<String, dynamic>>> getLocalTableData(String tableName) async {
@@ -2076,5 +3153,191 @@ class SheetSyncService extends GetxService {
       colorText: Colors.white,
       duration: const Duration(seconds: 3),
     );
+  }
+
+  Future<void> fixExistingDatabaseTypes() async {
+    debugPrint('🛠️ Fixing existing database type issues...');
+
+    try {
+      final db = await dbHelper.database;
+
+      // Fix customer table
+      await _fixTableTypes(db, 'customer', [
+        'id INTEGER',
+        'openingBalance REAL',
+      ]);
+
+      // Fix ledger table
+      await _fixTableTypes(db, 'ledger', [
+        'id INTEGER',
+        'accountId INTEGER',
+        'debit REAL',
+        'credit REAL',
+        'balance REAL',
+      ]);
+
+      // Fix item table
+      await _fixTableTypes(db, 'item', [
+        'id INTEGER',
+        'pricePerKg REAL',
+        'costPrice REAL',
+        'sellingPrice REAL',
+        'availableStock REAL',
+        'canWeight REAL',
+      ]);
+
+      debugPrint('✅ Database types fixed successfully');
+    } catch (e) {
+      debugPrint('❌ Error fixing database types: $e');
+    }
+  }
+
+  Future<void> _fixTableTypes(
+    Database db,
+    String tableName,
+    List<String> columnTypes,
+  ) async {
+    try {
+      // Check if table exists
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [tableName],
+      );
+
+      if (tables.isEmpty) {
+        debugPrint('📭 Table $tableName does not exist, skipping');
+        return;
+      }
+
+      // Get current table info
+      final info = await db.query(tableName, limit: 1);
+      if (info.isEmpty) {
+        debugPrint('📭 Table $tableName is empty, skipping');
+        return;
+      }
+
+      debugPrint('🛠️ Fixing types for table: $tableName');
+
+      // Create temporary table with correct types
+      final tempTable = '${tableName}_temp';
+      // final columns = info.first.keys.join(', ');
+      final columnDefs = columnTypes.join(', ');
+
+      await db.execute('CREATE TABLE $tempTable ($columnDefs)');
+
+      // Copy data with type conversion
+      await db.execute('INSERT INTO $tempTable SELECT * FROM $tableName');
+
+      // Drop original table
+      await db.execute('DROP TABLE $tableName');
+
+      // Rename temporary table
+      await db.execute('ALTER TABLE $tempTable RENAME TO $tableName');
+
+      debugPrint('✅ Fixed types for table: $tableName');
+    } catch (e) {
+      debugPrint('❌ Error fixing table $tableName: $e');
+    }
+  }
+
+  List<Map<String, dynamic>> _convertToVendorLedgerEntries(
+    List<Map<String, dynamic>> rawData,
+  ) {
+    return rawData.map((row) {
+      try {
+        final cleanedRow = _cleanRowWithEnhancedConversion(row);
+
+        // Ensure dates are properly formatted
+        if (cleanedRow['date'] is DateTime) {
+          cleanedRow['date'] = cleanedRow['date'].toIso8601String();
+        }
+        if (cleanedRow['createdAt'] is DateTime) {
+          cleanedRow['createdAt'] = cleanedRow['createdAt'].toIso8601String();
+        }
+        if (cleanedRow['updatedAt'] is DateTime) {
+          cleanedRow['updatedAt'] = cleanedRow['updatedAt'].toIso8601String();
+        }
+        if (cleanedRow['chequeDate'] is DateTime) {
+          cleanedRow['chequeDate'] = cleanedRow['chequeDate'].toIso8601String();
+        }
+
+        final entry = VendorLedgerEntry.fromMap(cleanedRow);
+        return entry.toMap();
+      } catch (e) {
+        debugPrint('❌ Error converting to VendorLedgerEntry: $e');
+        debugPrint('❌ Row data: $row');
+        // Return cleaned row as fallback with proper date formatting
+        final fallbackRow = _cleanRowWithEnhancedConversion(row);
+        if (fallbackRow['date'] is DateTime) {
+          fallbackRow['date'] = fallbackRow['date'].toIso8601String();
+        }
+        return fallbackRow;
+      }
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _convertToItemLedgerEntries(
+    String tableName,
+    List<Map<String, dynamic>> rawData,
+  ) {
+    // Extract ledgerNo from table name
+    final parts = tableName.split('_');
+    final ledgerNo = parts.length > 3 ? parts.sublist(3).join('_') : 'unknown';
+
+    return rawData.map((row) {
+      try {
+        final cleanedRow = _cleanRowWithEnhancedConversion(row);
+
+        // Add ledgerNo if not present
+        if (!cleanedRow.containsKey('ledgerNo')) {
+          cleanedRow['ledgerNo'] = ledgerNo;
+        }
+
+        // Handle numeric conversions
+        _ensureItemLedgerNumericFields(cleanedRow);
+
+        // Ensure dates are in milliseconds for ItemLedgerEntry
+        if (cleanedRow['createdAt'] is DateTime) {
+          cleanedRow['createdAt'] =
+              cleanedRow['createdAt'].millisecondsSinceEpoch;
+        }
+        if (cleanedRow['updatedAt'] is DateTime) {
+          cleanedRow['updatedAt'] =
+              cleanedRow['updatedAt'].millisecondsSinceEpoch;
+        }
+
+        final entry = ItemLedgerEntry.fromMap(cleanedRow);
+        return entry.toMap();
+      } catch (e) {
+        debugPrint('❌ Error converting to ItemLedgerEntry: $e');
+        debugPrint('❌ Row data: $row');
+        return _cleanRowWithEnhancedConversion(row);
+      }
+    }).toList();
+  }
+
+  /// Ensure numeric fields in ItemLedgerEntry
+  void _ensureItemLedgerNumericFields(Map<String, dynamic> row) {
+    final numericFields = [
+      'debit',
+      'pricePerKg',
+      'costPrice',
+      'sellingPrice',
+      'canWeight',
+      'credit',
+      'newStock',
+      'balance',
+    ];
+
+    for (var field in numericFields) {
+      if (row[field] == null) {
+        row[field] = 0.0;
+      }
+    }
+
+    // Set dates if not provided
+    final now = DateTime.now();
+    if (row['createdAt'] == null) row['createdAt'] = now;
+    if (row['updatedAt'] == null) row['updatedAt'] = now;
   }
 }

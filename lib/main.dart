@@ -98,7 +98,7 @@ void main() async {
       if (kReleaseMode) {
         await SentryFlutter.init((options) {
           options.dsn =
-              'https://27a1cdd081c8d3c7be512fe49c8ebb9c@o4510713545490432.ingest.us.sentry.io/4510713547522048';
+              'https://54b910cba2553a70302a8ebf758a2d60@o4510749281157120.ingest.us.sentry.io/4510749284302848';
           options.sendDefaultPii = true;
           options.tracesSampleRate = 0.1;
           // Capture breadcrumbs for better context
